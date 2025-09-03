@@ -830,11 +830,11 @@ async def main(repo_path=None, docs_path=None, memory_path=None, max_files_per_b
     
     # Use provided paths or default example paths
     if repo_path is None:
-        repo_path = "/data2/bjdwhzzh/project-hku/Deepcode_collections/DeepCode/deepcode_lab/papers/41/generate_code"
+        repo_path = "/Users/lizongwei/Reasearch/DeepCode_Base/DeepCode_eval_init/deepcode_lab/papers/1/generate_code"
     if docs_path is None:
-        docs_path = "/data2/bjdwhzzh/project-hku/Deepcode_collections/DeepCode/deepcode_lab/papers/41/initial_plan.txt"
+        docs_path = "/Users/lizongwei/Reasearch/DeepCode_Base/DeepCode_eval_init/deepcode_lab/papers/1/generate_codeinitial_plan.txt"
     if memory_path is None:
-        memory_path = "/data2/bjdwhzzh/project-hku/Deepcode_collections/DeepCode/deepcode_lab/papers/41/implement_code_summary.md"
+        memory_path = "/Users/lizongwei/Reasearch/DeepCode_Base/DeepCode_eval_init/deepcode_lab/papers/1/generate_code/implement_code_summary.md"
     
     print(f"🚀 Starting Refactored Code Evaluation Workflow")
     print(f"📂 Repository: {repo_path}")

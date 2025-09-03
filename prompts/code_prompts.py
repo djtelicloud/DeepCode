@@ -584,7 +584,7 @@ Create an implementation plan so detailed that a developer can reproduce the ENT
 ⚠️ IMPORTANT: Generate a COMPLETE plan that includes ALL 5 sections without being cut off by token limits.
 
 ## Content Balance Guidelines:
-- **Section 1 (File Structure)**: Brief overview (10% of content) - Focus on CORE implementation files only
+- **Section 1 (File Structure)**: Brief overview (10% of content) - Include all files but focus on implementation priority
 - **Section 2 (Implementation Components)**: Detailed but concise (40% of content) - This is the PRIORITY section
 - **Section 3 (Validation)**: Moderate detail (25% of content) - Essential experiments and tests
 - **Section 4 (Environment)**: Brief but complete (10% of content) - All necessary dependencies
@@ -598,7 +598,7 @@ Create an implementation plan so detailed that a developer can reproduce the ENT
 4. **FOURTH**: Configuration and data handling
 5. **LAST**: Documentation files (README.md, requirements.txt) - These should be created AFTER core implementation
 
-Note: README and requirements.txt are maintenance files that depend on the final implementation, so plan them last.
+Note: README and requirements.txt are maintenance files that depend on the final implementation, so plan them last but INCLUDE them in the file structure.
 
 # DETAILED SYNTHESIS PROCESS
 
@@ -652,14 +652,14 @@ complete_reproduction_plan:
   # - Organize files and directories in the most logical way for implementation
   # - Create meaningful names and groupings based on paper content
   # - Keep it clean, intuitive, and focused on what actually needs to be implemented
-  # - EXCLUDE documentation files (README.md, requirements.txt) - these come last
+  # - INCLUDE documentation files (README.md, requirements.txt) but mark them for LAST implementation
 
   file_structure: |
     [Design and specify your own project structure here - KEEP THIS BRIEF]
-    [Focus ONLY on core implementation files, NOT documentation files]
+    [Include ALL necessary files including README.md and requirements.txt]
     [Organize based on what this paper actually contains and needs]
     [Create directories and files that make sense for this specific implementation]
-    [EXCLUDE: README.md, requirements.txt - these come last in implementation]
+    [NOTE: README.md and requirements.txt should be implemented LAST after all code files]
 
   # SECTION 2: Implementation Components
 
@@ -1633,7 +1633,7 @@ Create an implementation plan so detailed that a developer can reproduce the ENT
 ⚠️ IMPORTANT: Generate a COMPLETE plan that includes ALL 5 sections without being cut off by token limits.
 
 ## Content Balance Guidelines:
-- **Section 1 (File Structure)**: Brief overview (10% of content) - Focus on CORE implementation files only
+- **Section 1 (File Structure)**: Brief overview (10% of content) - Include all files but focus on implementation priority
 - **Section 2 (Implementation Components)**: Detailed but concise (40% of content) - This is the PRIORITY section
 - **Section 3 (Validation)**: Moderate detail (25% of content) - Essential experiments and tests
 - **Section 4 (Environment)**: Brief but complete (10% of content) - All necessary dependencies
@@ -1647,7 +1647,7 @@ Create an implementation plan so detailed that a developer can reproduce the ENT
 4. **FOURTH**: Configuration and data handling
 5. **LAST**: Documentation files (README.md, requirements.txt) - These should be created AFTER core implementation
 
-Note: README and requirements.txt are maintenance files that depend on the final implementation, so plan them last.
+Note: README and requirements.txt are maintenance files that depend on the final implementation, so plan them last but INCLUDE them in the file structure.
 
 # DETAILED SYNTHESIS PROCESS
 
@@ -1701,14 +1701,14 @@ complete_reproduction_plan:
   # - Organize files and directories in the most logical way for implementation
   # - Create meaningful names and groupings based on paper content
   # - Keep it clean, intuitive, and focused on what actually needs to be implemented
-  # - EXCLUDE documentation files (README.md, requirements.txt) - these come last
+  # - INCLUDE documentation files (README.md, requirements.txt) but mark them for LAST implementation
 
   file_structure: |
     [Design and specify your own project structure here - KEEP THIS BRIEF]
-    [Focus ONLY on core implementation files, NOT documentation files]
+    [Include ALL necessary files including README.md and requirements.txt]
     [Organize based on what this paper actually contains and needs]
     [Create directories and files that make sense for this specific implementation]
-    [EXCLUDE: README.md, requirements.txt - these come last in implementation]
+    [NOTE: README.md and requirements.txt should be implemented LAST after all code files]
 
   # SECTION 2: Implementation Components
 

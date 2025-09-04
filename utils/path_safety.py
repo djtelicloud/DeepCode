@@ -97,6 +97,33 @@ class PathSafetyManager:
         project_path = os.path.join(self.deepcode_lab_path, "projects", clean_name)
         return self.validate_path(project_path)
 
+    def get_safe_papers_project_path(self, project_name: str, paper_id: str = "1") -> str:
+        """
+        Get a safe papers project path within deepcode_lab/papers/{project_name}/{id}/.
+
+        Args:
+            project_name: Project name or identifier
+            paper_id: Paper ID (defaults to "1")
+
+        Returns:
+            str: Safe papers project path following papers/{project_name}/{id}/ structure
+        """
+        # Clean project name
+        import re
+        clean_name = re.sub(r'[^\w\s-]', '', str(project_name)).strip()
+        clean_name = re.sub(r'[-\s]+', '-', clean_name)
+
+        if not clean_name:
+            clean_name = "unnamed-project"
+
+        # Clean paper ID
+        clean_id = re.sub(r'[^\w\s-]', '', str(paper_id)).strip()
+        if not clean_id:
+            clean_id = "1"
+
+        papers_project_path = os.path.join(self.deepcode_lab_path, "papers", clean_name, clean_id)
+        return self.validate_path(papers_project_path)
+
     def get_legacy_papers_path(self, paper_id: str) -> str:
         """
         Get a safe legacy papers path for backward compatibility.
@@ -189,6 +216,11 @@ def validate_path(path: str) -> str:
 def get_safe_project_path(project_name: str) -> str:
     """Global function for safe project paths"""
     return _path_safety.get_safe_project_path(project_name)
+
+
+def get_safe_papers_project_path(project_name: str, paper_id: str = "1") -> str:
+    """Global function for safe papers project paths"""
+    return _path_safety.get_safe_papers_project_path(project_name, paper_id)
 
 
 def migrate_external_directory(external_path: str) -> Optional[str]:

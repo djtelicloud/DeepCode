@@ -13,13 +13,13 @@ python tools/code_implementation_server.py
 """
 
 import os
-import subprocess
-import json
 import sys
 import io
+import subprocess
+import json
 from pathlib import Path
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import tempfile
 import shutil
 import logging
@@ -27,15 +27,7 @@ from datetime import datetime
 
 # Set standard output encoding to UTF-8
 if sys.stdout.encoding != "utf-8":
-    try:
-        if hasattr(sys.stdout, "reconfigure"):
-            sys.stdout.reconfigure(encoding="utf-8")
-            sys.stderr.reconfigure(encoding="utf-8")
-        else:
-            sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding="utf-8")
-            sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding="utf-8")
-    except Exception as e:
-        print(f"Warning: Could not set UTF-8 encoding: {e}")
+    print("Warning: sys.stdout encoding is not UTF-8. Some output may not display correctly.")
 
 # Import MCP related modules
 from mcp.server.fastmcp import FastMCP
@@ -48,12 +40,12 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP("code-implementation-server")
 
 # Global variables: workspace directory and operation history
-WORKSPACE_DIR = None
+WORKSPACE_DIR: Optional[Path] = None
 OPERATION_HISTORY = []
 CURRENT_FILES = {}
 
 
-def initialize_workspace(workspace_dir: str = None):
+def initialize_workspace(workspace_dir: Optional[str] = None):
     """
     Initialize workspace
 
@@ -84,7 +76,7 @@ def ensure_workspace_exists():
         initialize_workspace()
 
     # Create workspace directory (if it doesn't exist)
-    if not WORKSPACE_DIR.exists():
+    if WORKSPACE_DIR is not None and not WORKSPACE_DIR.exists():
         WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
         logger.info(f"Workspace directory created: {WORKSPACE_DIR}")
 
@@ -94,6 +86,8 @@ def validate_path(path: str) -> Path:
     if WORKSPACE_DIR is None:
         initialize_workspace()
 
+    if WORKSPACE_DIR is None:
+        raise ValueError("WORKSPACE_DIR is not set")
     full_path = (WORKSPACE_DIR / path).resolve()
     if not str(full_path).startswith(str(WORKSPACE_DIR)):
         raise ValueError(f"Path {path} is outside workspace scope")
@@ -112,7 +106,7 @@ def log_operation(action: str, details: Dict[str, Any]):
 
 @mcp.tool()
 async def read_file(
-    file_path: str, start_line: int = None, end_line: int = None
+    file_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None
 ) -> str:
     """
     Read file content, supports specifying line number range
@@ -878,6 +872,8 @@ async def read_code_mem(file_paths: List[str]) -> str:
         ensure_workspace_exists()
 
         # Look for implement_code_summary.md in the workspace
+        if WORKSPACE_DIR is None:
+            raise ValueError("WORKSPACE_DIR is not set")
         current_path = Path(WORKSPACE_DIR)
         summary_file_path = current_path.parent / "implement_code_summary.md"
 
@@ -1146,7 +1142,7 @@ def _extract_file_section_alternative(
                     except (IndexError, AttributeError):
                         continue
 
-    return None
+    return ""
 
 
 # ==================== Code Search Tools ====================
@@ -1157,7 +1153,7 @@ async def search_code(
     pattern: str,
     file_pattern: str = "*.json",
     use_regex: bool = False,
-    search_directory: str = None,
+    search_directory: Optional[str] = None,
 ) -> str:
     """
     Search patterns in code files
@@ -1186,7 +1182,7 @@ async def search_code(
             search_path = WORKSPACE_DIR
 
         # 检查Search directory是否存在
-        if not search_path.exists():
+        if search_path is None or not search_path.exists():
             result = {
                 "status": "error",
                 "message": f"Search directory不存在: {search_path}",
@@ -1197,6 +1193,8 @@ async def search_code(
         import glob
 
         # Get matching files
+        if search_path is None:
+            return json.dumps({"status": "error", "message": "Search path is not set."}, ensure_ascii=False, indent=2)
         file_paths = glob.glob(str(search_path / "**" / file_pattern), recursive=True)
 
         matches = []
@@ -1297,7 +1295,7 @@ async def get_file_structure(directory: str = ".", max_depth: int = 5) -> str:
         else:
             target_dir = validate_path(directory)
 
-        if not target_dir.exists():
+        if target_dir is None or not target_dir.exists():
             result = {
                 "status": "error",
                 "message": f"Directory does not exist: {directory}",
@@ -1337,6 +1335,8 @@ async def get_file_structure(directory: str = ".", max_depth: int = 5) -> str:
                 "item_count": len(items),
             }
 
+        if target_dir is None:
+            return json.dumps({"status": "error", "message": "Target directory is not set."}, ensure_ascii=False, indent=2)
         structure = scan_directory(target_dir)
 
         # 统计信息

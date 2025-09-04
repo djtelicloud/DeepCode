@@ -6,51 +6,24 @@ and reduce code duplication across the project.
 """
 
 import os
-import yaml
-from typing import Any, Type, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Type
 
-# Import LLM classes
-from mcp_agent.workflows.llm.augmented_llm_anthropic import AnthropicAugmentedLLM
+import yaml
+# Import LLM classes - using OpenAI GPT-5 only
 from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
 
 
 def get_preferred_llm_class(config_path: str = "mcp_agent.secrets.yaml") -> Type[Any]:
     """
-    Automatically select the LLM class based on API key availability in configuration.
-
-    Reads from YAML config file and returns AnthropicAugmentedLLM if anthropic.api_key
-    is available, otherwise returns OpenAIAugmentedLLM.
+    Get the LLM class for GPT-5 usage.
 
     Args:
-        config_path: Path to the YAML configuration file
+        config_path: Path to the YAML configuration file (kept for compatibility)
 
     Returns:
-        class: The preferred LLM class
+        class: OpenAIAugmentedLLM class for GPT-5
     """
-    try:
-        # Try to read the configuration file
-        if os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
-
-            # Check for anthropic API key in config
-            anthropic_config = config.get("anthropic", {})
-            anthropic_key = anthropic_config.get("api_key", "")
-
-            if anthropic_key and anthropic_key.strip() and not anthropic_key == "":
-                # print("🤖 Using AnthropicAugmentedLLM (Anthropic API key found in config)")
-                return AnthropicAugmentedLLM
-            else:
-                # print("🤖 Using OpenAIAugmentedLLM (Anthropic API key not configured)")
-                return OpenAIAugmentedLLM
-        else:
-            print(f"🤖 Config file {config_path} not found, using OpenAIAugmentedLLM")
-            return OpenAIAugmentedLLM
-
-    except Exception as e:
-        print(f"🤖 Error reading config file {config_path}: {e}")
-        print("🤖 Falling back to OpenAIAugmentedLLM")
-        return OpenAIAugmentedLLM
+    return OpenAIAugmentedLLM
 
 
 def get_default_models(config_path: str = "mcp_agent.config.yaml"):
@@ -61,7 +34,7 @@ def get_default_models(config_path: str = "mcp_agent.config.yaml"):
         config_path: Path to the configuration file
 
     Returns:
-        dict: Dictionary with 'anthropic' and 'openai' default models
+        dict: Dictionary with 'openai' default model (GPT-5)
     """
     try:
         if os.path.exists(config_path):
@@ -69,22 +42,17 @@ def get_default_models(config_path: str = "mcp_agent.config.yaml"):
                 config = yaml.safe_load(f)
 
             # Handle null values in config sections
-            anthropic_config = config.get("anthropic") or {}
             openai_config = config.get("openai") or {}
+            openai_model = openai_config.get("default_model", "gpt-5")
 
-            anthropic_model = anthropic_config.get(
-                "default_model", "claude-sonnet-4-20250514"
-            )
-            openai_model = openai_config.get("default_model", "o3-mini")
-
-            return {"anthropic": anthropic_model, "openai": openai_model}
+            return {"openai": openai_model}
         else:
             print(f"Config file {config_path} not found, using default models")
-            return {"anthropic": "claude-sonnet-4-20250514", "openai": "o3-mini"}
+            return {"openai": "gpt-5"}
 
     except Exception as e:
         print(f"❌Error reading config file {config_path}: {e}")
-        return {"anthropic": "claude-sonnet-4-20250514", "openai": "o3-mini"}
+        return {"openai": "gpt-5"}
 
 
 def get_document_segmentation_config(
@@ -158,7 +126,7 @@ def should_use_document_segmentation(
 
 
 def get_adaptive_agent_config(
-    use_segmentation: bool, search_server_names: list = None
+    use_segmentation: bool, search_server_names: Optional[List[str]] = None
 ) -> Dict[str, list]:
     """
     Get adaptive agent configuration based on whether to use document segmentation.
@@ -209,13 +177,11 @@ def get_adaptive_prompts(use_segmentation: bool) -> Dict[str, str]:
     """
     # Import here to avoid circular imports
     from prompts.code_prompts import (
-        PAPER_CONCEPT_ANALYSIS_PROMPT,
+        CODE_PLANNING_PROMPT, CODE_PLANNING_PROMPT_TRADITIONAL,
         PAPER_ALGORITHM_ANALYSIS_PROMPT,
-        CODE_PLANNING_PROMPT,
-        PAPER_CONCEPT_ANALYSIS_PROMPT_TRADITIONAL,
         PAPER_ALGORITHM_ANALYSIS_PROMPT_TRADITIONAL,
-        CODE_PLANNING_PROMPT_TRADITIONAL,
-    )
+        PAPER_CONCEPT_ANALYSIS_PROMPT,
+        PAPER_CONCEPT_ANALYSIS_PROMPT_TRADITIONAL)
 
     if use_segmentation:
         return {

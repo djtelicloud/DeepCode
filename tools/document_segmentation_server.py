@@ -58,26 +58,49 @@ Usage:
 python tools/document_segmentation_server.py
 """
 
+import hashlib
+import io
+import json
+import logging
 import os
 import re
-import json
 import sys
-import io
-from typing import Dict, List, Tuple
-import hashlib
-import logging
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional, Tuple, cast, Any
 
 # Set standard output encoding to UTF-8
-if sys.stdout.encoding != "utf-8":
+try:
+    current_encoding = getattr(sys.stdout, "encoding", None)
+except Exception:
+    current_encoding = None
+
+if current_encoding != "utf-8":
     try:
-        if hasattr(sys.stdout, "reconfigure"):
-            sys.stdout.reconfigure(encoding="utf-8")
-            sys.stderr.reconfigure(encoding="utf-8")
+        # Prefer reconfigure if available (use getattr to avoid type-checker errors)
+        reconf_out = getattr(sys.stdout, "reconfigure", None)
+        reconf_err = getattr(sys.stderr, "reconfigure", None)
+        if callable(reconf_out) and callable(reconf_err):
+            reconf_out(encoding="utf-8")
+            reconf_err(encoding="utf-8")
         else:
-            sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding="utf-8")
-            sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding="utf-8")
+            # Fallback to detaching and wrapping if possible
+            out_detach = getattr(sys.stdout, "detach", None)
+            err_detach = getattr(sys.stderr, "detach", None)
+            if callable(out_detach) and callable(err_detach):
+                # Call detach; use a typing.Any cast to satisfy type checkers while preserving runtime behavior
+                out_buf = out_detach()
+                err_buf = err_detach()
+                try:
+                    sys.stdout = io.TextIOWrapper(cast(Any, out_buf), encoding="utf-8")
+                    sys.stderr = io.TextIOWrapper(cast(Any, err_buf), encoding="utf-8")
+                except Exception:
+                    # Last-resort fallback: try using the .buffer attribute if available
+                    out_buffer_attr = getattr(sys.stdout, "buffer", None)
+                    err_buffer_attr = getattr(sys.stderr, "buffer", None)
+                    if out_buffer_attr and err_buffer_attr:
+                        sys.stdout = io.TextIOWrapper(out_buffer_attr, encoding="utf-8")
+                        sys.stderr = io.TextIOWrapper(err_buffer_attr, encoding="utf-8")
     except Exception as e:
         print(f"Warning: Could not set UTF-8 encoding: {e}")
 
@@ -1602,9 +1625,9 @@ async def analyze_and_segment_document(
 async def read_document_segments(
     paper_dir: str,
     query_type: str,
-    keywords: List[str] = None,
+    keywords: Optional[List[str]] = None,
     max_segments: int = 3,
-    max_total_chars: int = None,
+    max_total_chars: Optional[int] = None,
 ) -> str:
     """
     Intelligently retrieve relevant document segments based on query type

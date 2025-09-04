@@ -1,0 +1,12 @@
+{
+  "title": "Attention Mechanism Research",
+  "input_type": "file",
+  "path": "./papers/transformer_improvements.pdf",
+  "paper_info": {
+    "title": "Transformer Improvements Study",
+    "authors": [
+      "Jane Doe"
+    ],
+    "year": "2023"
+  }
+}

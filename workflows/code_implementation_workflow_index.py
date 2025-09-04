@@ -17,23 +17,22 @@ import logging
 import os
 import sys
 import time
-import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
+import yaml
 # MCP Agent imports
 from mcp_agent.agents.agent import Agent
 
 # Local imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from prompts.code_prompts import STRUCTURE_GENERATOR_PROMPT
-from prompts.code_prompts import (
-    PURE_CODE_IMPLEMENTATION_SYSTEM_PROMPT_INDEX,
-)
+from config.mcp_tool_definitions import get_mcp_tools
+from prompts.code_prompts import (PURE_CODE_IMPLEMENTATION_SYSTEM_PROMPT_INDEX,
+                                  STRUCTURE_GENERATOR_PROMPT)
+from utils.llm_utils import get_default_models
 from workflows.agents import CodeImplementationAgent
 from workflows.agents.memory_agent_concise import ConciseMemoryAgent
-from config.mcp_tool_definitions_index import get_mcp_tools
-from utils.llm_utils import get_preferred_llm_class, get_default_models
+
 # DialogueLogger removed - no longer needed
 
 
@@ -77,15 +76,89 @@ class CodeImplementationWorkflowWithIndex:
         return logger
 
     def _read_plan_file(self, plan_file_path: str) -> str:
-        """Read implementation plan file"""
+        """Read implementation plan file with fallback mechanisms"""
         plan_path = Path(plan_file_path)
-        if not plan_path.exists():
-            raise FileNotFoundError(
-                f"Implementation plan file not found: {plan_file_path}"
-            )
 
-        with open(plan_path, "r", encoding="utf-8") as f:
-            return f.read()
+        # Try the original path first
+        if plan_path.exists():
+            with open(plan_path, "r", encoding="utf-8") as f:
+                return f.read()
+
+        # Fallback 1: Look for plan file in current working directory and paper iterations
+        fallback_paths = [Path("initial_plan.txt")]
+
+        # Add dynamic paths for paper iterations (1, 2, 3, etc.)
+        base_paths = [
+            "deepcode_lab/papers",
+            "papers",
+            "agent_folders/papers",  # Common alternative structure
+        ]
+
+        for base_path in base_paths:
+            base_dir = Path(base_path)
+            if base_dir.exists():
+                # Find all numbered subdirectories (1, 2, 3, etc.)
+                for item in base_dir.iterdir():
+                    if item.is_dir() and item.name.isdigit():
+                        plan_file = item / "initial_plan.txt"
+                        fallback_paths.append(plan_file)
+
+        # Sort by paper number (highest first) to prioritize latest iterations
+        numbered_paths = [p for p in fallback_paths if p.parent.name.isdigit()]
+        other_paths = [p for p in fallback_paths if not p.parent.name.isdigit()]
+        numbered_paths.sort(key=lambda p: int(p.parent.name), reverse=True)
+        fallback_paths = numbered_paths + other_paths
+
+        for fallback_path in fallback_paths:
+            if fallback_path.exists():
+                self.logger.warning(f"Plan file not found at {plan_file_path}, using fallback: {fallback_path}")
+                with open(fallback_path, "r", encoding="utf-8") as f:
+                    return f.read()
+
+        # Fallback 2: Create a basic plan if no plan file exists
+        self.logger.warning(f"No implementation plan found. Creating a basic plan at {plan_file_path}")
+        return self._create_default_plan(plan_file_path)
+
+    def _create_default_plan(self, plan_file_path: str) -> str:
+        """Create a default implementation plan when none exists"""
+        plan_path = Path(plan_file_path)
+
+        # Ensure parent directory exists
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+
+        default_plan = """# Default Implementation Plan
+
+## Overview
+This is an auto-generated implementation plan created because no plan file was found.
+
+## Project Structure
+```
+generate_code/
+├── main.py           # Main entry point
+├── README.md         # Project documentation
+├── requirements.txt  # Dependencies
+└── src/             # Source code directory
+    └── __init__.py  # Package initialization
+```
+
+## Implementation Strategy
+1. **Setup Phase**: Create basic project structure
+2. **Core Implementation**: Implement main functionality
+3. **Documentation**: Add README and documentation
+4. **Dependencies**: Set up requirements.txt
+
+## Notes
+- This is a minimal plan. Please replace with a proper implementation plan.
+- Consider the specific requirements of your project.
+- Update the file structure based on your actual needs.
+"""
+
+        # Write the default plan to file
+        with open(plan_path, "w", encoding="utf-8") as f:
+            f.write(default_plan)
+
+        self.logger.info(f"Created default plan file at: {plan_file_path}")
+        return default_plan
 
     def _check_file_tree_exists(self, target_directory: str) -> bool:
         """Check if file tree structure already exists"""
@@ -176,10 +249,15 @@ class CodeImplementationWorkflowWithIndex:
             server_names=["command-executor"],
         )
 
-        async with structure_agent:
-            creator = await structure_agent.attach_llm(
-                get_preferred_llm_class(self.config_path)
-            )
+        entered = False
+        try:
+            # Explicitly enter the Agent async context instead of using `async with`
+            await structure_agent.__aenter__()
+            entered = True
+
+            from mcp_agent.workflows.llm.augmented_llm_openai import \
+                OpenAIAugmentedLLM
+            creator = await structure_agent.attach_llm(OpenAIAugmentedLLM)
 
             message = f"""Analyze the following implementation plan and generate shell commands to create the file tree structure.
 
@@ -203,9 +281,15 @@ Requirements:
             result = await creator.generate_str(message=message)
             self.logger.info("File tree structure creation completed")
             return result
+        finally:
+            if entered:
+                try:
+                    await structure_agent.__aexit__(None, None, None)
+                except Exception as e:
+                    self.logger.warning(f"Failed to close structure agent: {e}")
 
     async def implement_code_pure(
-        self, plan_content: str, target_directory: str, code_directory: str = None
+        self, plan_content: str, target_directory: str, code_directory: Optional[str] = None
     ) -> str:
         """Pure code implementation - focus on code writing without testing"""
         self.logger.info("Starting pure code implementation (no testing)...")
@@ -222,7 +306,7 @@ Requirements:
             )
 
         try:
-            client, client_type = await self._initialize_llm_client()
+            client = await self._initialize_llm_client()
             await self._initialize_mcp_agent(code_directory)
 
             tools = self._prepare_mcp_tool_definitions()
@@ -264,7 +348,6 @@ Requirements:
 
             result = await self._pure_code_implementation_loop(
                 client,
-                client_type,
                 system_message,
                 messages,
                 tools,
@@ -282,7 +365,6 @@ Requirements:
     async def _pure_code_implementation_loop(
         self,
         client,
-        client_type,
         system_message,
         messages,
         tools,
@@ -293,7 +375,7 @@ Requirements:
         max_iterations = 500
         iteration = 0
         start_time = time.time()
-        max_time = 2400  # 40 minutes
+        max_time = 5000  # 40 minutes
 
         # Initialize specialized agents
         code_agent = CodeImplementationAgent(
@@ -312,8 +394,8 @@ Requirements:
             )
 
         # Connect code agent with memory agent for summary generation
-        # Note: Concise memory agent doesn't need LLM client for summary generation
-        code_agent.set_memory_agent(memory_agent, client, client_type)
+        # Note: Memory agent now uses GPTClient internally
+        code_agent.set_memory_agent(memory_agent)
 
         # Initialize memory agent with iteration 0
         memory_agent.start_new_round(iteration=0)
@@ -341,7 +423,7 @@ Requirements:
 
             # Call LLM
             response = await self._call_llm_with_tools(
-                client, client_type, current_system_message, messages, tools
+                client, current_system_message, messages, tools
             )
 
             response_content = response.get("content", "").strip()
@@ -430,7 +512,7 @@ Requirements:
                 break
 
             # Emergency trim if too long
-            if len(messages) > 50:
+            if len(messages) > 500:
                 self.logger.warning(
                     "Emergency message trim - applying concise memory optimization"
                 )
@@ -457,9 +539,9 @@ Requirements:
             )
 
             await self.mcp_agent.__aenter__()
-            llm = await self.mcp_agent.attach_llm(
-                get_preferred_llm_class(self.config_path)
-            )
+            from mcp_agent.workflows.llm.augmented_llm_openai import \
+                OpenAIAugmentedLLM
+            llm = await self.mcp_agent.attach_llm(OpenAIAugmentedLLM)
 
             # Set workspace to the target code directory
             workspace_result = await self.mcp_agent.call_tool(
@@ -491,98 +573,35 @@ Requirements:
                 self.mcp_agent = None
 
     async def _initialize_llm_client(self):
-        """Initialize LLM client (Anthropic or OpenAI) based on API key availability"""
-        # Check which API has available key and try that first
-        anthropic_key = self.api_config.get("anthropic", {}).get("api_key", "")
-        openai_key = self.api_config.get("openai", {}).get("api_key", "")
+        """Initialize GPT-5 client using GPTClient"""
+        from tools.gpt_client import GPTClient
 
-        # Try Anthropic API first if key is available
-        if anthropic_key and anthropic_key.strip():
-            try:
-                from anthropic import AsyncAnthropic
-
-                client = AsyncAnthropic(api_key=anthropic_key)
-                # Test connection with default model from config
-                await client.messages.create(
-                    model=self.default_models["anthropic"],
-                    max_tokens=20,
-                    messages=[{"role": "user", "content": "test"}],
-                )
-                self.logger.info(
-                    f"Using Anthropic API with model: {self.default_models['anthropic']}"
-                )
-                return client, "anthropic"
-            except Exception as e:
-                self.logger.warning(f"Anthropic API unavailable: {e}")
-
-        # Try OpenAI API if Anthropic failed or key not available
-        if openai_key and openai_key.strip():
-            try:
-                from openai import AsyncOpenAI
-
-                # Handle custom base_url if specified
-                openai_config = self.api_config.get("openai", {})
-                base_url = openai_config.get("base_url")
-
-                if base_url:
-                    client = AsyncOpenAI(api_key=openai_key, base_url=base_url)
-                else:
-                    client = AsyncOpenAI(api_key=openai_key)
-
-                # Test connection with default model from config
-                # Try max_tokens first, fallback to max_completion_tokens if unsupported
-                try:
-                    await client.chat.completions.create(
-                        model=self.default_models["openai"],
-                        max_tokens=20,
-                        messages=[{"role": "user", "content": "test"}],
-                    )
-                except Exception as e:
-                    if "max_tokens" in str(e) and "max_completion_tokens" in str(e):
-                        # Retry with max_completion_tokens for models that require it
-                        await client.chat.completions.create(
-                            model=self.default_models["openai"],
-                            max_completion_tokens=20,
-                            messages=[{"role": "user", "content": "test"}],
-                        )
-                    else:
-                        raise
-                self.logger.info(
-                    f"Using OpenAI API with model: {self.default_models['openai']}"
-                )
-                if base_url:
-                    self.logger.info(f"Using custom base URL: {base_url}")
-                return client, "openai"
-            except Exception as e:
-                self.logger.warning(f"OpenAI API unavailable: {e}")
-
-        raise ValueError(
-            "No available LLM API - please check your API keys in configuration"
-        )
+        try:
+            client = GPTClient()
+            self.logger.info("Using GPT-5 with responses API")
+            return client
+        except Exception as e:
+            self.logger.error(f"Failed to initialize GPTClient: {e}")
+            raise ValueError(
+                "No available LLM API - please check your OpenAI API key in configuration"
+            )
 
     async def _call_llm_with_tools(
-        self, client, client_type, system_message, messages, tools, max_tokens=8192
+        self, client, system_message, messages, tools, max_tokens=20000
     ):
-        """Call LLM with tools"""
+        """Call GPTClient with tools"""
         try:
-            if client_type == "anthropic":
-                return await self._call_anthropic_with_tools(
-                    client, system_message, messages, tools, max_tokens
-                )
-            elif client_type == "openai":
-                return await self._call_openai_with_tools(
-                    client, system_message, messages, tools, max_tokens
-                )
-            else:
-                raise ValueError(f"Unsupported client type: {client_type}")
+            return await self._call_gpt_client_with_tools(
+                client, system_message, messages, tools, max_tokens
+            )
         except Exception as e:
             self.logger.error(f"LLM call failed: {e}")
             raise
 
-    async def _call_anthropic_with_tools(
+    async def _call_gpt_client_with_tools(
         self, client, system_message, messages, tools, max_tokens
     ):
-        """Call Anthropic API"""
+        """Call GPTClient with MCP tools using responses API"""
         validated_messages = self._validate_messages(messages)
         if not validated_messages:
             validated_messages = [
@@ -590,87 +609,29 @@ Requirements:
             ]
 
         try:
-            response = await client.messages.create(
-                model=self.default_models["anthropic"],
-                system=system_message,
-                messages=validated_messages,
-                tools=tools,
-                max_tokens=max_tokens,
-                temperature=0.2,
+            # Create combined input with system prompt and conversation
+            messages_text = ""
+            for msg in validated_messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                messages_text += f"{role}: {content}\n"
+
+            combined_input = f"{system_message}\n\nConversation:\n{messages_text}"
+
+            # Use new MCP tools support in responses API
+            response = await client.call_with_mcp_tools(
+                input_text=combined_input,
+                mcp_tools=tools
             )
+
+            # Return in expected format - response is now a string
+            return {
+                "content": response,
+                "tool_calls": []  # MCP tool calls are handled internally by responses API
+            }
         except Exception as e:
-            self.logger.error(f"Anthropic API call failed: {e}")
+            self.logger.error(f"GPTClient MCP API call failed: {e}")
             raise
-
-        content = ""
-        tool_calls = []
-
-        for block in response.content:
-            if block.type == "text":
-                content += block.text
-            elif block.type == "tool_use":
-                tool_calls.append(
-                    {"id": block.id, "name": block.name, "input": block.input}
-                )
-
-        return {"content": content, "tool_calls": tool_calls}
-
-    async def _call_openai_with_tools(
-        self, client, system_message, messages, tools, max_tokens
-    ):
-        """Call OpenAI API"""
-        openai_tools = []
-        for tool in tools:
-            openai_tools.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool["name"],
-                        "description": tool["description"],
-                        "parameters": tool["input_schema"],
-                    },
-                }
-            )
-
-        openai_messages = [{"role": "system", "content": system_message}]
-        openai_messages.extend(messages)
-
-        # Try max_tokens first, fallback to max_completion_tokens if unsupported
-        try:
-            response = await client.chat.completions.create(
-                model=self.default_models["openai"],
-                messages=openai_messages,
-                tools=openai_tools if openai_tools else None,
-                max_tokens=max_tokens,
-                temperature=0.2,
-            )
-        except Exception as e:
-            if "max_tokens" in str(e) and "max_completion_tokens" in str(e):
-                # Retry with max_completion_tokens for models that require it
-                response = await client.chat.completions.create(
-                    model=self.default_models["openai"],
-                    messages=openai_messages,
-                    tools=openai_tools if openai_tools else None,
-                    max_completion_tokens=max_tokens,
-                )
-            else:
-                raise
-
-        message = response.choices[0].message
-        content = message.content or ""
-
-        tool_calls = []
-        if message.tool_calls:
-            for tool_call in message.tool_calls:
-                tool_calls.append(
-                    {
-                        "id": tool_call.id,
-                        "name": tool_call.function.name,
-                        "input": json.loads(tool_call.function.arguments),
-                    }
-                )
-
-        return {"content": content, "tool_calls": tool_calls}
 
     # ==================== 5. Tools and Utility Methods (Utility Layer) ====================
 
@@ -688,7 +649,7 @@ Requirements:
         return valid_messages
 
     def _prepare_mcp_tool_definitions(self) -> List[Dict[str, Any]]:
-        """Prepare tool definitions in Anthropic API standard format"""
+        """Prepare tool definitions for MCP tools"""
         return get_mcp_tools("code_implementation")
 
     def _check_tool_results_for_errors(self, tool_results: List[Dict]) -> bool:
@@ -799,23 +760,31 @@ Requirements:
                 code_stats["files_implemented_count"]
             )
 
+
             if self.mcp_agent:
                 history_result = await self.mcp_agent.call_tool(
-                    "get_operation_history", {"last_n": 30}
+                    "get_operation_history", {"last_n": 100}
                 )
-                history_data = (
-                    json.loads(history_result)
-                    if isinstance(history_result, str)
-                    else history_result
-                )
+                # Try to convert to dict if possible
+                if isinstance(history_result, str):
+                    try:
+                        history_data = json.loads(history_result)
+                    except Exception:
+                        history_data = {"total_operations": 0, "history": []}
+                elif isinstance(history_result, dict):
+                    history_data = history_result
+                else:
+                    # Try to access as attribute or fallback
+                    history_data = getattr(history_result, "__dict__", {"total_operations": 0, "history": []})
             else:
                 history_data = {"total_operations": 0, "history": []}
 
             write_operations = 0
             files_created = []
-            if "history" in history_data:
+            # Only operate if history_data is a dict and has 'history' as a key
+            if isinstance(history_data, dict) and "history" in history_data:
                 for item in history_data["history"]:
-                    if item.get("action") == "write_file":
+                    if isinstance(item, dict) and item.get("action") == "write_file":
                         write_operations += 1
                         file_path = item.get("details", {}).get("file_path", "unknown")
                         files_created.append(file_path)
@@ -828,7 +797,7 @@ Requirements:
 - Total elapsed time: {elapsed_time:.2f} seconds
 - Files implemented: {code_stats['total_files_implemented']}
 - File write operations: {write_operations}
-- Total MCP operations: {history_data.get('total_operations', 0)}
+- Total MCP operations: {history_data.get('total_operations', 0) if isinstance(history_data, dict) else 0}
 
 ## Read Tools Configuration
 - Read tools enabled: {code_stats['read_tools_status']['read_tools_enabled']}
@@ -939,11 +908,50 @@ async def main():
         # Ask if user wants to continue with actual workflow
         print("\nContinuing with workflow execution...")
 
-        plan_file = "/Users/lizongwei/Reasearch/DeepCode_Base/DeepCode/deepcode_lab/papers/1/initial_plan.txt"
-        # plan_file = "/data2/bjdwhzzh/project-hku/Code-Agent2.0/Code-Agent/deepcode-mcp/agent_folders/papers/1/initial_plan.txt"
-        target_directory = (
-            "/Users/lizongwei/Reasearch/DeepCode_Base/DeepCode/deepcode_lab/papers/1/"
-        )
+        # Use dynamic path detection to find the latest paper iteration
+        plan_file = None
+        target_directory = None
+
+        # First, try to find papers directory
+        paper_bases = ["deepcode_lab/papers", "papers"]
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        parent_dir = os.path.dirname(project_root)
+
+        for base in paper_bases:
+            # Try relative path first
+            papers_dir = Path(base)
+            if not papers_dir.exists():
+                # Try absolute path within project
+                papers_dir = Path(parent_dir) / base.replace("/", os.sep)
+
+            if papers_dir.exists():
+                # Find the highest numbered directory with initial_plan.txt
+                numbered_dirs = []
+                for item in papers_dir.iterdir():
+                    if item.is_dir() and item.name.isdigit():
+                        plan_path = item / "initial_plan.txt"
+                        if plan_path.exists():
+                            numbered_dirs.append((int(item.name), str(item)))
+
+                if numbered_dirs:
+                    # Use the highest numbered directory
+                    numbered_dirs.sort(reverse=True)
+                    highest_num, highest_dir = numbered_dirs[0]
+                    plan_file = str(Path(highest_dir) / "initial_plan.txt")
+                    target_directory = str(Path(highest_dir))
+                    break
+
+        # Fallback to /1/ if no numbered directories found
+        if not plan_file:
+            plan_file = "deepcode_lab/papers/1/initial_plan.txt"
+            target_directory = "deepcode_lab/papers/1/"
+
+            if not os.path.exists(plan_file):
+                plan_file = os.path.join(parent_dir, "deepcode_lab", "papers", "1", "initial_plan.txt")
+                target_directory = os.path.join(parent_dir, "deepcode_lab", "papers", "1")
+
+        print(f"📄 Plan file: {plan_file}")
+        print(f"📂 Target directory: {target_directory}")
         print("Implementation Mode Selection:")
         print("1. Pure Code Implementation Mode (Recommended)")
         print("2. Iterative Implementation Mode")

@@ -5,11 +5,12 @@ A lightweight agent that coordinates with the document segmentation MCP server
 to analyze document structure and prepare segments for other agents.
 """
 
-import os
 import logging
-from typing import Dict, Any, Optional
+import os
+from typing import Any, Dict, Optional
 
 from mcp_agent.agents.agent import Agent
+
 from utils.llm_utils import get_preferred_llm_class
 
 
@@ -344,7 +345,8 @@ async def prepare_document_segments(
             }
 
     except Exception as e:
-        logger.error(f"Error preparing document segments: {e}")
+        if logger:
+            logger.error(f"Error preparing document segments: {e}")
         return {
             "status": "error",
             "paper_dir": paper_dir,

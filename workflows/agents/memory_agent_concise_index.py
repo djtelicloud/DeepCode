@@ -21,7 +21,7 @@ import logging
 import os
 import time
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 class ConciseMemoryAgent:
@@ -61,8 +61,7 @@ class ConciseMemoryAgent:
 
         # Store default models configuration
         self.default_models = default_models or {
-            "anthropic": "claude-sonnet-4-20250514",
-            "openai": "gpt-4o",
+            "openai": "gpt-5",
         }
 
         # Memory state tracking - new logic: trigger after each write_file
@@ -102,7 +101,7 @@ class ConciseMemoryAgent:
             f"Concise Memory Agent initialized with target directory: {self.save_path}"
         )
         self.logger.info(f"Code summary will be saved to: {self.code_summary_path}")
-        # self.logger.info(f"🤖 Using models - Anthropic: {self.default_models['anthropic']}, OpenAI: {self.default_models['openai']}")
+        # self.logger.info(f"🤖 Using models - OpenAI GPT-5: {self.default_models['openai']}")
         self.logger.info(
             "📝 NEW LOGIC: Memory clearing triggered after each write_file call"
         )
@@ -467,19 +466,15 @@ class ConciseMemoryAgent:
 
     async def create_code_implementation_summary(
         self,
-        client,
-        client_type: str,
         file_path: str,
         implementation_content: str,
         files_implemented: int,
     ) -> str:
         """
         Create LLM-based code implementation summary after writing a file
-        Uses LLM to analyze and summarize the implemented code
+        Uses GPT-5 responses API to analyze and summarize the implemented code
 
         Args:
-            client: LLM client instance
-            client_type: Type of LLM client ("anthropic" or "openai")
             file_path: Path of the implemented file
             implementation_content: Content of the implemented file
             files_implemented: Number of files implemented so far
@@ -498,9 +493,7 @@ class ConciseMemoryAgent:
             summary_messages = [{"role": "user", "content": summary_prompt}]
 
             # Get LLM-generated summary
-            llm_response = await self._call_llm_for_summary(
-                client, client_type, summary_messages
-            )
+            llm_response = await self._call_llm_for_summary(summary_messages)
             llm_summary = llm_response.get("content", "")
 
             # Extract different sections from LLM summary
@@ -835,62 +828,31 @@ class ConciseMemoryAgent:
             self.logger.error(f"Failed to save code implementation summary: {e}")
 
     async def _call_llm_for_summary(
-        self, client, client_type: str, summary_messages: List[Dict]
+        self, summary_messages: List[Dict]
     ) -> Dict[str, Any]:
         """
-        Call LLM for code implementation summary generation ONLY
+        Call GPT-5 for code implementation summary generation ONLY
 
         This method is used only for creating code implementation summaries,
         NOT for conversation summarization which has been removed.
         """
-        if client_type == "anthropic":
-            response = await client.messages.create(
-                model=self.default_models["anthropic"],
-                system="You are an expert code implementation summarizer. Create structured summaries of implemented code files that preserve essential information about functions, dependencies, and implementation approaches.",
-                messages=summary_messages,
-                max_tokens=5000,
-                temperature=0.2,
-            )
+        from tools.gpt_client import GPTClient
 
-            content = ""
-            for block in response.content:
-                if block.type == "text":
-                    content += block.text
+        # Convert messages to single prompt string for GPTClient
+        system_prompt = "You are an expert code implementation summarizer. Create structured summaries of implemented code files that preserve essential information about functions, dependencies, and implementation approaches."
 
-            return {"content": content}
+        user_content = ""
+        for msg in summary_messages:
+            if msg.get("role") == "user":
+                user_content += msg.get("content", "")
 
-        elif client_type == "openai":
-            openai_messages = [
-                {
-                    "role": "system",
-                    "content": "You are an expert code implementation summarizer. Create structured summaries of implemented code files that preserve essential information about functions, dependencies, and implementation approaches.",
-                }
-            ]
-            openai_messages.extend(summary_messages)
+        full_prompt = f"{system_prompt}\n\n{user_content}"
 
-            # Try max_tokens and temperature first, fallback to max_completion_tokens without temperature if unsupported
-            try:
-                response = await client.chat.completions.create(
-                    model=self.default_models["openai"],
-                    messages=openai_messages,
-                    max_tokens=5000,
-                    temperature=0.2,
-                )
-            except Exception as e:
-                if "max_tokens" in str(e) and "max_completion_tokens" in str(e):
-                    # Retry with max_completion_tokens and no temperature for models that require it
-                    response = await client.chat.completions.create(
-                        model=self.default_models["openai"],
-                        messages=openai_messages,
-                        max_completion_tokens=5000,
-                    )
-                else:
-                    raise
+        # Use GPTClient with responses API
+        gpt_client = GPTClient()
+        content = await gpt_client.web_search(full_prompt)
 
-            return {"content": response.choices[0].message.content or ""}
-
-        else:
-            raise ValueError(f"Unsupported client type: {client_type}")
+        return {"content": content}
 
     def start_new_round(self, iteration: Optional[int] = None):
         """Start a new dialogue round and reset tool results

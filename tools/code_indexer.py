@@ -6,11 +6,10 @@ identifying file relationships and reusable components for implementation.
 
 Features:
 - Recursive file traversal
-- LLM-powered code similarity analysis using augmented LLM classes
+- GPT-5 powered code similarity analysis
 - JSON-based relationship storage
 - Configurable matching strategies
 - Progress tracking and error handling
-- Automatic LLM provider selection based on API key availability
 """
 
 import asyncio
@@ -18,14 +17,15 @@ import json
 import logging
 import os
 import re
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass, asdict
-from typing import List, Dict, Any
+from typing import Any, Dict, List, Optional
 
-# MCP Agent imports for LLM
+# Import GPT client
 import yaml
-from utils.llm_utils import get_preferred_llm_class
+
+from tools.gpt_client import GPTClient
 
 
 def get_default_models(config_path: str = "mcp_agent.config.yaml"):
@@ -36,26 +36,23 @@ def get_default_models(config_path: str = "mcp_agent.config.yaml"):
         config_path: Path to the configuration file
 
     Returns:
-        dict: Dictionary with 'anthropic' and 'openai' default models
+        dict: Dictionary with 'openai' default model (GPT-5)
     """
     try:
         if os.path.exists(config_path):
             with open(config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f)
 
-            anthropic_model = config.get("anthropic", {}).get(
-                "default_model", "claude-sonnet-4-20250514"
-            )
-            openai_model = config.get("openai", {}).get("default_model", "o3-mini")
+            openai_model = config.get("openai", {}).get("default_model", "gpt-5")
 
-            return {"anthropic": anthropic_model, "openai": openai_model}
+            return {"openai": openai_model}
         else:
             print(f"Config file {config_path} not found, using default models")
-            return {"anthropic": "claude-sonnet-4-20250514", "openai": "o3-mini"}
+            return {"openai": "gpt-5"}
 
     except Exception as e:
         print(f"Error reading config file {config_path}: {e}")
-        return {"anthropic": "claude-sonnet-4-20250514", "openai": "o3-mini"}
+        return {"openai": "gpt-5"}
 
 
 @dataclass
@@ -101,11 +98,11 @@ class CodeIndexer:
 
     def __init__(
         self,
-        code_base_path: str = None,
-        target_structure: str = None,
-        output_dir: str = None,
+        code_base_path: Optional[str] = None,
+        target_structure: Optional[str] = None,
+        output_dir: Optional[str] = None,
         config_path: str = "mcp_agent.secrets.yaml",
-        indexer_config_path: str = None,
+        indexer_config_path: Optional[str] = None,
         enable_pre_filtering: bool = True,
     ):
         # Load configurations first
@@ -128,7 +125,7 @@ class CodeIndexer:
 
         # LLM clients
         self.llm_client = None
-        self.llm_client_type = None
+        # Remove client_type - now always using GPTClient
 
         # Initialize logger early
         self.logger = self._setup_logger()
@@ -191,12 +188,12 @@ class CodeIndexer:
         )
 
         self.max_file_size = file_analysis_config.get("max_file_size", 1048576)  # 1MB
-        self.max_content_length = file_analysis_config.get("max_content_length", 3000)
+        self.max_content_length = file_analysis_config.get("max_content_length", 30000)
 
         # Load LLM configuration
         llm_config = self.indexer_config.get("llm", {})
-        self.model_provider = llm_config.get("model_provider", "anthropic")
-        self.llm_max_tokens = llm_config.get("max_tokens", 4000)
+        self.model_provider = llm_config.get("model_provider", "openai")
+        self.llm_max_tokens = llm_config.get("max_tokens", 20000)
         self.llm_temperature = llm_config.get("temperature", 0.3)
         self.llm_system_prompt = llm_config.get(
             "system_prompt",
@@ -227,11 +224,11 @@ class CodeIndexer:
         self.enable_concurrent_analysis = performance_config.get(
             "enable_concurrent_analysis", False
         )
-        self.max_concurrent_files = performance_config.get("max_concurrent_files", 5)
+        self.max_concurrent_files = performance_config.get("max_concurrent_files", 15)
         self.enable_content_caching = performance_config.get(
             "enable_content_caching", False
         )
-        self.max_cache_size = performance_config.get("max_cache_size", 100)
+        self.max_cache_size = performance_config.get("max_cache_size", 500)
 
         # Load debug configuration
         debug_config = self.indexer_config.get("debug", {})
@@ -323,7 +320,9 @@ class CodeIndexer:
         """Load indexer configuration from YAML file"""
         try:
             import yaml
-
+            if self.indexer_config_path is None:
+                print("Warning: indexer_config_path is None. Using default configuration values.")
+                return {}
             with open(self.indexer_config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f)
                 if config is None:
@@ -337,81 +336,33 @@ class CodeIndexer:
             return {}
 
     async def _initialize_llm_client(self):
-        """Initialize LLM client (Anthropic or OpenAI) based on API key availability"""
+        """Initialize GPT-5 client using GPTClient"""
         if self.llm_client is not None:
-            return self.llm_client, self.llm_client_type
+            return self.llm_client
 
         # Check if mock responses are enabled
         if self.mock_llm_responses:
             self.logger.info("Using mock LLM responses for testing")
             self.llm_client = "mock"
-            self.llm_client_type = "mock"
-            return "mock", "mock"
+            return "mock"
 
-        # Check which API has available key and try that first
-        anthropic_key = self.api_config.get("anthropic", {}).get("api_key", "")
-        openai_key = self.api_config.get("openai", {}).get("api_key", "")
-
-        # Try Anthropic API first if key is available
-        if anthropic_key and anthropic_key.strip():
-            try:
-                from anthropic import AsyncAnthropic
-
-                client = AsyncAnthropic(api_key=anthropic_key)
-                # Test connection with default model from config
-                await client.messages.create(
-                    model=self.default_models["anthropic"],
-                    max_tokens=10,
-                    messages=[{"role": "user", "content": "test"}],
-                )
-                self.logger.info(
-                    f"Using Anthropic API with model: {self.default_models['anthropic']}"
-                )
-                self.llm_client = client
-                self.llm_client_type = "anthropic"
-                return client, "anthropic"
-            except Exception as e:
-                self.logger.warning(f"Anthropic API unavailable: {e}")
-
-        # Try OpenAI API if Anthropic failed or key not available
-        if openai_key and openai_key.strip():
-            try:
-                from openai import AsyncOpenAI
-
-                # Handle custom base_url if specified
-                openai_config = self.api_config.get("openai", {})
-                base_url = openai_config.get("base_url")
-
-                if base_url:
-                    client = AsyncOpenAI(api_key=openai_key, base_url=base_url)
-                else:
-                    client = AsyncOpenAI(api_key=openai_key)
-
-                # Test connection with default model from config
-                await client.chat.completions.create(
-                    model=self.default_models["openai"],
-                    max_tokens=10,
-                    messages=[{"role": "user", "content": "test"}],
-                )
-                self.logger.info(
-                    f"Using OpenAI API with model: {self.default_models['openai']}"
-                )
-                if base_url:
-                    self.logger.info(f"Using custom base URL: {base_url}")
-                self.llm_client = client
-                self.llm_client_type = "openai"
-                return client, "openai"
-            except Exception as e:
-                self.logger.warning(f"OpenAI API unavailable: {e}")
+        # Use GPTClient for simplified GPT-5 access
+        try:
+            client = GPTClient()
+            self.logger.info("Using GPT-5 with responses API")
+            self.llm_client = client
+            return client
+        except Exception as e:
+            self.logger.warning(f"GPTClient unavailable: {e}")
 
         raise ValueError(
-            "No available LLM API - please check your API keys in configuration"
+            "No available LLM API - please check your OpenAI API key in configuration"
         )
 
     async def _call_llm(
-        self, prompt: str, system_prompt: str = None, max_tokens: int = None
+        self, prompt: str, system_prompt: Optional[str] = None, max_tokens: Optional[int] = None
     ) -> str:
-        """Call LLM for code analysis with retry mechanism and debugging support"""
+        """Call LLM for code analysis with retry mechanism and debugging support (OpenAI GPT-5 responses API)"""
         if system_prompt is None:
             system_prompt = self.llm_system_prompt
         if max_tokens is None:
@@ -434,50 +385,48 @@ class CodeIndexer:
                         f"LLM call attempt {attempt + 1}/{self.max_retries}"
                     )
 
-                client, client_type = await self._initialize_llm_client()
+                client = await self._initialize_llm_client()
 
-                if client_type == "anthropic":
-                    response = await client.messages.create(
-                        model=self.default_models["anthropic"],
-                        system=system_prompt,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=max_tokens,
-                        temperature=self.llm_temperature,
-                    )
+                # Handle mock client
+                if isinstance(client, str) and client == "mock":
+                    if self.verbose_output:
+                        self.logger.info("Using mock LLM response")
+                    return f"Mock analysis for: {prompt[:100]}..."
 
-                    content = ""
-                    for block in response.content:
-                        if block.type == "text":
-                            content += block.text
+                # Use GPTClient for analysis
+                # Create a structured response schema for code analysis
+                schema = {
+                    "name": "code_analysis",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "analysis": {"type": "string"}
+                        },
+                        "required": ["analysis"]
+                    }
+                }
 
-                    # Save debug response if enabled
-                    if self.save_raw_responses:
-                        self._save_debug_response("anthropic", prompt, content)
+                # Combine system prompt and user prompt
+                full_prompt = f"{system_prompt}\n\n{prompt}"
 
-                    return content
+                # Ensure we have a GPTClient instance
+                from tools.gpt_client import GPTClient
+                if not isinstance(client, GPTClient):
+                    raise ValueError("Expected GPTClient instance")
 
-                elif client_type == "openai":
-                    messages = [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt},
-                    ]
+                response = await client.structured_response(full_prompt, schema)
 
-                    response = await client.chat.completions.create(
-                        model=self.default_models["openai"],
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=self.llm_temperature,
-                    )
+                # Parse the JSON response and extract the analysis
+                try:
+                    import json
+                    parsed_response = json.loads(response)
+                    content = parsed_response.get("analysis", response)
+                except (json.JSONDecodeError, KeyError):
+                    content = response
 
-                    content = response.choices[0].message.content or ""
-
-                    # Save debug response if enabled
-                    if self.save_raw_responses:
-                        self._save_debug_response("openai", prompt, content)
-
-                    return content
-                else:
-                    raise ValueError(f"Unsupported client type: {client_type}")
+                if self.save_raw_responses:
+                    self._save_debug_response("gpt_client", prompt, content)
+                return content
 
             except Exception as e:
                 last_error = e
@@ -804,7 +753,7 @@ class CodeIndexer:
             cache_key = None
             if self.enable_content_caching:
                 cache_key = self._get_cache_key(file_path)
-                if cache_key in self.content_cache:
+                if self.content_cache is not None and cache_key in self.content_cache:
                     if self.verbose_output:
                         self.logger.info(f"Using cached analysis for {file_path.name}")
                     return self.content_cache[cache_key]
@@ -848,7 +797,10 @@ class CodeIndexer:
             try:
                 # Try to parse JSON response
                 match = re.search(r"\{.*\}", llm_response, re.DOTALL)
-                analysis_data = json.loads(match.group(0))
+                if match:
+                    analysis_data = json.loads(match.group(0))
+                else:
+                    raise json.JSONDecodeError("No JSON found", llm_response, 0)
             except json.JSONDecodeError:
                 # Fallback to basic analysis if JSON parsing fails
                 analysis_data = {
@@ -871,7 +823,7 @@ class CodeIndexer:
             )
 
             # Cache the result if caching is enabled
-            if self.enable_content_caching and cache_key:
+            if self.enable_content_caching and cache_key and self.content_cache is not None:
                 self.content_cache[cache_key] = file_summary
                 self._manage_cache_size()
 
@@ -938,7 +890,10 @@ class CodeIndexer:
             llm_response = await self._call_llm(relationship_prompt, max_tokens=1500)
 
             match = re.search(r"\{.*\}", llm_response, re.DOTALL)
-            relationship_data = json.loads(match.group(0))
+            if match:
+                relationship_data = json.loads(match.group(0))
+            else:
+                relationship_data = {"relationships": []}
 
             relationships = []
             for rel_data in relationship_data.get("relationships", []):
@@ -1046,7 +1001,7 @@ class CodeIndexer:
             relationships=all_relationships,
             analysis_metadata={
                 "analysis_date": datetime.now().isoformat(),
-                "target_structure_analyzed": self.target_structure[:200] + "...",
+                "target_structure_analyzed": (self.target_structure[:200] + "...") if self.target_structure else "",
                 "total_relationships_found": len(all_relationships),
                 "high_confidence_relationships": len(
                     [
@@ -1150,24 +1105,15 @@ class CodeIndexer:
                             last_modified="",
                         )
                         file_summaries.append(error_summary)
-                    else:
+                    elif isinstance(result, tuple) and len(result) == 2:
                         file_summary, relationships = result
                         file_summaries.append(file_summary)
                         all_relationships.extend(relationships)
+                    else:
+                        self.logger.error(f"Unexpected result type: {type(result)}")
 
             except Exception as e:
                 self.logger.error(f"Concurrent processing failed: {e}")
-                # Cancel any remaining tasks
-                for task in tasks:
-                    if not task.done() and not task.cancelled():
-                        task.cancel()
-
-                # Wait for cancelled tasks to complete
-                try:
-                    await asyncio.sleep(0.1)  # Brief wait for cancellation
-                except Exception:
-                    pass
-
                 # Fallback to sequential processing
                 self.logger.info("Falling back to sequential processing...")
                 return await self._process_files_sequentially(files_to_analyze)
@@ -1180,18 +1126,6 @@ class CodeIndexer:
             return file_summaries, all_relationships
 
         except Exception as e:
-            # Ensure all tasks are cancelled in case of unexpected errors
-            if tasks:
-                for task in tasks:
-                    if not task.done() and not task.cancelled():
-                        task.cancel()
-
-            # Wait briefly for cancellation to complete
-            try:
-                await asyncio.sleep(0.1)
-            except Exception:
-                pass
-
             self.logger.error(f"Critical error in concurrent processing: {e}")
             # Fallback to sequential processing
             self.logger.info(
@@ -1200,18 +1134,10 @@ class CodeIndexer:
             return await self._process_files_sequentially(files_to_analyze)
 
         finally:
-            # Final cleanup: ensure all tasks are properly finished
-            if tasks:
-                for task in tasks:
-                    if not task.done() and not task.cancelled():
-                        task.cancel()
-
             # Clear task references to help with garbage collection
             tasks.clear()
-
             # Force garbage collection to help clean up semaphore and related resources
             import gc
-
             gc.collect()
 
     async def build_all_indexes(self) -> Dict[str, str]:
@@ -1557,10 +1483,8 @@ async def main():
         # Display configuration information
         print(f"📁 Code base path: {indexer.code_base_path}")
         print(f"📂 Output directory: {indexer.output_dir}")
-        print(
-            f"🤖 Default models: Anthropic={indexer.default_models['anthropic']}, OpenAI={indexer.default_models['openai']}"
-        )
-        print(f"🔧 Preferred LLM: {get_preferred_llm_class(api_config_file).__name__}")
+        print(f"🤖 Default model: GPT-5")
+        print(f"🔧 LLM Client: GPTClient")
         print(
             f"⚡ Concurrent analysis: {'enabled' if indexer.enable_concurrent_analysis else 'disabled'}"
         )
@@ -1625,7 +1549,7 @@ async def main():
 
         # Print debug information if available
         try:
-            indexer
+            # ...existing code...
             if indexer.verbose_output:
                 import traceback
 

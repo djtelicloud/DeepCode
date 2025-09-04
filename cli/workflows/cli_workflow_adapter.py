@@ -7,7 +7,8 @@ with enhanced progress reporting, error handling, and CLI-specific optimizations
 """
 
 import os
-from typing import Callable, Dict, Any
+from typing import Any, Callable, Dict
+
 from mcp_agent.app import MCPApp
 
 
@@ -55,10 +56,23 @@ class CLIWorkflowAdapter:
             self.logger = agent_app.logger
             self.context = agent_app.context
 
-            # Configure filesystem access
-            import os
 
-            self.context.config.mcp.servers["filesystem"].args.extend([os.getcwd()])
+            # Configure filesystem access robustly
+            import os
+            config = getattr(self.context, 'config', None)
+            mcp = getattr(config, 'mcp', None) if config else None
+            servers = getattr(mcp, 'servers', None) if mcp else None
+            if servers and "filesystem" in servers:
+                fs_server = servers["filesystem"]
+                # If 'args' does not exist or is not a list, initialize it
+                if not hasattr(fs_server, 'args') or not isinstance(fs_server.args, list):
+                    fs_server.args = []
+                fs_server.args.extend([os.getcwd()])
+            else:
+                if self.cli_interface:
+                    self.cli_interface.print_status(
+                        "⚠️ 'filesystem' server not found in MCP config. Filesystem access not configured.", "warning"
+                    )
 
             if self.cli_interface:
                 self.cli_interface.print_status(
@@ -141,9 +155,8 @@ class CLIWorkflowAdapter:
         """
         try:
             # Import the latest agent orchestration engine
-            from workflows.agent_orchestration_engine import (
-                execute_multi_agent_research_pipeline,
-            )
+            from workflows.agent_orchestration_engine import \
+                execute_multi_agent_research_pipeline
 
             # Create CLI progress callback
             progress_callback = self.create_cli_progress_callback()
@@ -201,9 +214,8 @@ class CLIWorkflowAdapter:
         """
         try:
             # Import the chat-based pipeline
-            from workflows.agent_orchestration_engine import (
-                execute_chat_based_planning_pipeline,
-            )
+            from workflows.agent_orchestration_engine import \
+                execute_chat_based_planning_pipeline
 
             # Create CLI progress callback for chat mode
             def chat_progress_callback(progress: int, message: str):

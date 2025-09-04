@@ -30,33 +30,28 @@ import asyncio
 import json
 import os
 import re
-import yaml
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import yaml
 # MCP Agent imports
 from mcp_agent.agents.agent import Agent
 from mcp_agent.workflows.llm.augmented_llm import RequestParams
 from mcp_agent.workflows.parallel.parallel_llm import ParallelLLM
 
 # Local imports
-from prompts.code_prompts import (
-    PAPER_INPUT_ANALYZER_PROMPT,
-    PAPER_DOWNLOADER_PROMPT,
-    PAPER_REFERENCE_ANALYZER_PROMPT,
-    CHAT_AGENT_PLANNING_PROMPT,
-)
+from prompts.code_prompts import (CHAT_AGENT_PLANNING_PROMPT,
+                                  PAPER_DOWNLOADER_PROMPT,
+                                  PAPER_INPUT_ANALYZER_PROMPT,
+                                  PAPER_REFERENCE_ANALYZER_PROMPT)
 from utils.file_processor import FileProcessor
+from utils.llm_utils import (get_adaptive_agent_config, get_adaptive_prompts,
+                             get_preferred_llm_class,
+                             should_use_document_segmentation)
+from workflows.agents.document_segmentation_agent import \
+    prepare_document_segments
 from workflows.code_implementation_workflow import CodeImplementationWorkflow
-from workflows.code_implementation_workflow_index import (
-    CodeImplementationWorkflowWithIndex,
-)
-from utils.llm_utils import (
-    get_preferred_llm_class,
-    should_use_document_segmentation,
-    get_adaptive_agent_config,
-    get_adaptive_prompts,
-)
-from workflows.agents.document_segmentation_agent import prepare_document_segments
+from workflows.code_implementation_workflow_index import \
+    CodeImplementationWorkflowWithIndex
 
 # Environment configuration
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"  # Prevent .pyc file generation
@@ -70,7 +65,7 @@ def get_default_search_server(config_path: str = "mcp_agent.config.yaml"):
         config_path: Path to the main configuration file
 
     Returns:
-        str: The default search server name ("brave" or "bocha-mcp")
+        str: The default search server name ("brave" or "openai-mcp")
     """
     try:
         if os.path.exists(config_path):
@@ -184,7 +179,7 @@ def extract_clean_json(llm_output: str) -> str:
 
 async def run_research_analyzer(prompt_text: str, logger) -> str:
     """
-    Run the research analysis workflow using ResearchAnalyzerAgent.
+    Run the research analysis workflow using GPTClient with responses API.
 
     Args:
         prompt_text: Input prompt text containing research information
@@ -204,88 +199,65 @@ async def run_research_analyzer(prompt_text: str, logger) -> str:
                 "Empty or None prompt_text provided to run_research_analyzer"
             )
 
-        analyzer_agent = Agent(
-            name="ResearchAnalyzerAgent",
-            instruction=PAPER_INPUT_ANALYZER_PROMPT,
-            server_names=get_search_server_names(),
+        # Use GPT-5 responses API directly instead of legacy MCP agent framework
+        from tools.gpt_client import GPTClient
+
+        client = GPTClient()
+        print("✅ GPT-5 client initialized")
+
+        # Create analysis prompt combining instruction with input
+        analysis_prompt = f"""
+{PAPER_INPUT_ANALYZER_PROMPT}
+
+Input to analyze:
+{prompt_text}
+"""
+
+        print(f"🔄 Making GPT-5 responses API request for research analysis")
+
+        # Use responses API for analysis
+        raw_result = await client.call_with_mcp_tools(
+            input_text=analysis_prompt,
+            mcp_tools=None  # No MCP tools needed for basic analysis
         )
 
-        async with analyzer_agent:
-            print("analyzer: Connected to server, calling list_tools...")
-            try:
-                tools = await analyzer_agent.list_tools()
-                print(
-                    "Tools available:",
-                    tools.model_dump() if hasattr(tools, "model_dump") else str(tools),
-                )
-            except Exception as e:
-                print(f"Failed to list tools: {e}")
+        print("✅ GPT-5 responses API request completed")
+        print(f"Raw result type: {type(raw_result)}")
+        print(f"Raw result length: {len(raw_result) if raw_result else 0}")
 
-            try:
-                analyzer = await analyzer_agent.attach_llm(get_preferred_llm_class())
-                print("✅ LLM attached successfully")
-            except Exception as e:
-                print(f"❌ Failed to attach LLM: {e}")
-                raise
+        if not raw_result:
+            print("❌ CRITICAL: raw_result is empty or None!")
+            print("This could indicate:")
+            print("1. LLM API call failed silently")
+            print("2. API rate limiting or quota exceeded")
+            print("3. Network connectivity issues")
+            raise ValueError("LLM returned empty result")
 
-            # Set higher token output for research analysis
-            analysis_params = RequestParams(
-                max_tokens=6144,
-                temperature=0.3,
-            )
+        # Clean LLM output to ensure only pure JSON is returned
+        try:
+            clean_result = extract_clean_json(raw_result)
+            print(f"Raw LLM output: {raw_result}")
+            print(f"Cleaned JSON output: {clean_result}")
 
-            print(
-                f"🔄 Making LLM request with params: max_tokens={analysis_params.max_tokens}, temperature={analysis_params.temperature}"
-            )
-
-            try:
-                raw_result = await analyzer.generate_str(
-                    message=prompt_text, request_params=analysis_params
+            # Log to SimpleLLMLogger
+            if hasattr(logger, "log_response"):
+                logger.log_response(
+                    clean_result,
+                    model="ResearchAnalyzer",
+                    agent="ResearchAnalyzerAgent",
                 )
 
-                print("✅ LLM request completed")
-                print(f"Raw result type: {type(raw_result)}")
-                print(f"Raw result length: {len(raw_result) if raw_result else 0}")
+            if not clean_result or clean_result.strip() == "":
+                print("❌ CRITICAL: clean_result is empty after JSON extraction!")
+                print(f"Original raw_result was: {raw_result}")
+                raise ValueError("JSON extraction resulted in empty output")
 
-                if not raw_result:
-                    print("❌ CRITICAL: raw_result is empty or None!")
-                    print("This could indicate:")
-                    print("1. LLM API call failed silently")
-                    print("2. API rate limiting or quota exceeded")
-                    print("3. Network connectivity issues")
-                    print("4. MCP server communication problems")
-                    raise ValueError("LLM returned empty result")
+            return clean_result
 
-            except Exception as e:
-                print(f"❌ LLM generation failed: {e}")
-                print(f"Exception type: {type(e)}")
-                raise
-
-            # Clean LLM output to ensure only pure JSON is returned
-            try:
-                clean_result = extract_clean_json(raw_result)
-                print(f"Raw LLM output: {raw_result}")
-                print(f"Cleaned JSON output: {clean_result}")
-
-                # Log to SimpleLLMLogger
-                if hasattr(logger, "log_response"):
-                    logger.log_response(
-                        clean_result,
-                        model="ResearchAnalyzer",
-                        agent="ResearchAnalyzerAgent",
-                    )
-
-                if not clean_result or clean_result.strip() == "":
-                    print("❌ CRITICAL: clean_result is empty after JSON extraction!")
-                    print(f"Original raw_result was: {raw_result}")
-                    raise ValueError("JSON extraction resulted in empty output")
-
-                return clean_result
-
-            except Exception as e:
-                print(f"❌ JSON extraction failed: {e}")
-                print(f"Raw result was: {raw_result}")
-                raise
+        except Exception as e:
+            print(f"❌ JSON extraction failed: {e}")
+            print(f"Raw result was: {raw_result}")
+            raise
 
     except Exception as e:
         print(f"❌ run_research_analyzer failed: {e}")
@@ -322,7 +294,7 @@ async def run_resource_processor(analysis_result: str, logger) -> str:
 
         # Set higher token output for resource processing
         processor_params = RequestParams(
-            max_tokens=4096,
+            maxTokens=4096,
             temperature=0.2,
         )
 
@@ -382,9 +354,9 @@ async def run_code_analyzer(
         llm_factory=get_preferred_llm_class(),
     )
 
-    # Set appropriate token output limit for Claude models (max 8192)
+    # Set appropriate token output limit for GPT-5 models
     enhanced_params = RequestParams(
-        max_tokens=8192,  # Adjusted to Claude 3.5 Sonnet's actual limit
+        maxTokens=8192,  # GPT-5 token limit
         temperature=0.3,
     )
 
@@ -432,7 +404,7 @@ async def github_repo_download(search_result: str, paper_dir: str, logger) -> st
 
         # Set higher token output for GitHub download
         github_params = RequestParams(
-            max_tokens=4096,
+            maxTokens=4096,
             temperature=0.1,
         )
 
@@ -552,8 +524,10 @@ async def synthesize_workspace_infrastructure_agent(
         dict: Comprehensive workspace infrastructure metadata
     """
     # Parse download result to get file information
+    # Ensure base_dir is a string (not None)
+    base_dir = workspace_dir if workspace_dir is not None else ""
     result = await FileProcessor.process_file_input(
-        download_result, base_dir=workspace_dir
+        download_result, base_dir=base_dir
     )
     paper_dir = result["paper_dir"]
 
@@ -564,16 +538,14 @@ async def synthesize_workspace_infrastructure_agent(
     print("   AI-driven path optimization: active")
 
     return {
-        "paper_dir": paper_dir,
-        "standardized_text": result["standardized_text"],
-        "reference_path": os.path.join(paper_dir, "reference.txt"),
-        "initial_plan_path": os.path.join(paper_dir, "initial_plan.txt"),
-        "download_path": os.path.join(paper_dir, "github_download.txt"),
-        "index_report_path": os.path.join(paper_dir, "codebase_index_report.txt"),
-        "implementation_report_path": os.path.join(
-            paper_dir, "code_implementation_report.txt"
-        ),
-        "workspace_dir": workspace_dir,
+        "paper_dir": str(paper_dir),
+        "standardized_text": str(result["standardized_text"]),
+        "reference_path": str(os.path.join(paper_dir, "reference.txt")),
+        "initial_plan_path": str(os.path.join(paper_dir, "initial_plan.txt")),
+        "download_path": str(os.path.join(paper_dir, "github_download.txt")),
+        "index_report_path": str(os.path.join(paper_dir, "codebase_index_report.txt")),
+        "implementation_report_path": str(os.path.join(paper_dir, "code_implementation_report.txt")),
+        "workspace_dir": str(workspace_dir) if workspace_dir is not None else "",
     }
 
 
@@ -648,8 +620,8 @@ async def orchestrate_document_preprocessing_agent(
 
         if not md_files:
             print("ℹ️ No markdown files found - skipping document preprocessing")
-            dir_info["segments_ready"] = False
-            dir_info["use_segmentation"] = False
+            dir_info["segments_ready"] = "False"
+            dir_info["use_segmentation"] = "False"
             return {
                 "status": "skipped",
                 "reason": "no_markdown_files",
@@ -673,8 +645,8 @@ async def orchestrate_document_preprocessing_agent(
                 document_content = f.read()
         except Exception as e:
             print(f"⚠️ Error reading document content: {e}")
-            dir_info["segments_ready"] = False
-            dir_info["use_segmentation"] = False
+            dir_info["segments_ready"] = "False"
+            dir_info["use_segmentation"] = "False"
             return {
                 "status": "error",
                 "error_message": f"Failed to read document: {str(e)}",
@@ -684,12 +656,13 @@ async def orchestrate_document_preprocessing_agent(
             }
 
         # Step 3: Determine if segmentation should be used
+
         should_segment, reason = should_use_document_segmentation(document_content)
         print(f"📊 Segmentation decision: {should_segment}")
         print(f"   Reason: {reason}")
 
         # Store decision in dir_info for downstream agents
-        dir_info["use_segmentation"] = should_segment
+        dir_info["use_segmentation"] = str(should_segment)
 
         if should_segment:
             print("🔧 Using intelligent document segmentation workflow...")
@@ -706,7 +679,7 @@ async def orchestrate_document_preprocessing_agent(
 
                 # Add segment information to dir_info for downstream agents
                 dir_info["segments_dir"] = segmentation_result["segments_dir"]
-                dir_info["segments_ready"] = True
+                dir_info["segments_ready"] = "True"
 
                 return segmentation_result
 
@@ -715,8 +688,8 @@ async def orchestrate_document_preprocessing_agent(
                     f"⚠️ Document segmentation failed: {segmentation_result.get('error_message', 'Unknown error')}"
                 )
                 print("   Falling back to traditional full-document processing...")
-                dir_info["segments_ready"] = False
-                dir_info["use_segmentation"] = False
+                dir_info["segments_ready"] = "False"
+                dir_info["use_segmentation"] = "False"
 
                 return {
                     "status": "fallback_to_traditional",
@@ -730,7 +703,7 @@ async def orchestrate_document_preprocessing_agent(
                 }
         else:
             print("📖 Using traditional full-document reading workflow...")
-            dir_info["segments_ready"] = False
+            dir_info["segments_ready"] = "False"
 
             return {
                 "status": "traditional",
@@ -746,9 +719,8 @@ async def orchestrate_document_preprocessing_agent(
         print("   Continuing with traditional full-document processing...")
 
         # Ensure fallback settings
-        dir_info["segments_ready"] = False
-        dir_info["use_segmentation"] = False
-
+        dir_info["segments_ready"] = "False"
+        dir_info["use_segmentation"] = "False"
         return {
             "status": "error",
             "paper_dir": dir_info["paper_dir"],
@@ -783,6 +755,9 @@ async def orchestrate_code_planning_agent(
         use_segmentation = dir_info.get("use_segmentation", True)
         print(f"📊 Planning mode: {'Segmented' if use_segmentation else 'Traditional'}")
 
+        # Convert use_segmentation to bool if it's a string
+        if isinstance(use_segmentation, str):
+            use_segmentation = use_segmentation == "True"
         initial_plan_result = await run_code_analyzer(
             dir_info["paper_dir"], logger, use_segmentation=use_segmentation
         )
@@ -1079,7 +1054,7 @@ async def synthesize_code_implementation_agent(
 
 async def run_chat_planning_agent(user_input: str, logger) -> str:
     """
-    Run the chat-based planning agent for user-provided coding requirements.
+    Run the chat-based planning agent for user-provided coding requirements using GPTClient with responses API.
 
     This agent transforms user's coding description into a comprehensive implementation plan
     that can be directly used for code generation. It handles both academic and engineering
@@ -1102,83 +1077,52 @@ async def run_chat_planning_agent(user_input: str, logger) -> str:
                 "Empty or None user_input provided to run_chat_planning_agent"
             )
 
-        # Create the chat planning agent
-        chat_planning_agent = Agent(
-            name="ChatPlanningAgent",
-            instruction=CHAT_AGENT_PLANNING_PROMPT,
-            server_names=get_search_server_names(),  # Dynamic search server configuration
-        )
+        # Use GPT-5 responses API directly instead of legacy MCP agent framework
+        from tools.gpt_client import GPTClient
 
-        async with chat_planning_agent:
-            print("chat_planning: Connected to server, calling list_tools...")
-            try:
-                tools = await chat_planning_agent.list_tools()
-                print(
-                    "Tools available:",
-                    tools.model_dump() if hasattr(tools, "model_dump") else str(tools),
-                )
-            except Exception as e:
-                print(f"Failed to list tools: {e}")
+        client = GPTClient()
+        print("✅ GPT-5 client initialized")
 
-            try:
-                planner = await chat_planning_agent.attach_llm(
-                    get_preferred_llm_class()
-                )
-                print("✅ LLM attached successfully")
-            except Exception as e:
-                print(f"❌ Failed to attach LLM: {e}")
-                raise
+        # Format the input message for the agent
+        formatted_message = f"""{CHAT_AGENT_PLANNING_PROMPT}
 
-            # Set higher token output for comprehensive planning
-            planning_params = RequestParams(
-                max_tokens=8192,  # Higher token limit for detailed plans
-                temperature=0.2,  # Lower temperature for more structured output
-            )
-
-            print(
-                f"🔄 Making LLM request with params: max_tokens={planning_params.max_tokens}, temperature={planning_params.temperature}"
-            )
-
-            # Format the input message for the agent
-            formatted_message = f"""Please analyze the following coding requirements and generate a comprehensive implementation plan:
+Please analyze the following coding requirements and generate a comprehensive implementation plan:
 
 User Requirements:
 {user_input}
 
 Please provide a detailed implementation plan that covers all aspects needed for successful development."""
 
-            try:
-                raw_result = await planner.generate_str(
-                    message=formatted_message, request_params=planning_params
-                )
+        print(f"🔄 Making GPT-5 responses API request for chat planning")
 
-                print("✅ Planning request completed")
-                print(f"Raw result type: {type(raw_result)}")
-                print(f"Raw result length: {len(raw_result) if raw_result else 0}")
+        # Use responses API for planning
+        raw_result = await client.call_with_mcp_tools(
+            input_text=formatted_message,
+            mcp_tools=None  # No MCP tools needed for basic planning
+        )
 
-                if not raw_result:
-                    print("❌ CRITICAL: raw_result is empty or None!")
-                    raise ValueError("Chat planning agent returned empty result")
+        print("✅ Planning request completed")
+        print(f"Raw result type: {type(raw_result)}")
+        print(f"Raw result length: {len(raw_result) if raw_result else 0}")
 
-            except Exception as e:
-                print(f"❌ Planning generation failed: {e}")
-                print(f"Exception type: {type(e)}")
-                raise
+        if not raw_result:
+            print("❌ CRITICAL: raw_result is empty or None!")
+            raise ValueError("Chat planning agent returned empty result")
 
-            # Log to SimpleLLMLogger
-            if hasattr(logger, "log_response"):
-                logger.log_response(
-                    raw_result, model="ChatPlanningAgent", agent="ChatPlanningAgent"
-                )
+        # Log to SimpleLLMLogger
+        if hasattr(logger, "log_response"):
+            logger.log_response(
+                raw_result, model="ChatPlanningAgent", agent="ChatPlanningAgent"
+            )
 
-            if not raw_result or raw_result.strip() == "":
-                print("❌ CRITICAL: Planning result is empty!")
-                raise ValueError("Chat planning agent produced empty output")
+        if not raw_result or raw_result.strip() == "":
+            print("❌ CRITICAL: Planning result is empty!")
+            raise ValueError("Chat planning agent produced empty output")
 
-            print("🎯 Chat planning completed successfully")
-            print(f"Planning result preview: {raw_result[:500]}...")
+        print("🎯 Chat planning completed successfully")
+        print(f"Planning result preview: {raw_result[:500]}...")
 
-            return raw_result
+        return raw_result
 
     except Exception as e:
         print(f"❌ run_chat_planning_agent failed: {e}")

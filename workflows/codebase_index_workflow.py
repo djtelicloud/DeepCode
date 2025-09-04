@@ -18,7 +18,8 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 import yaml
 
 # Add tools directory to path
@@ -323,7 +324,7 @@ project/
                 "output_dir": os.path.join(paper_dir, "indexes"),
             },
             "llm": {
-                "model_provider": "anthropic",
+                "model_provider": "openai",
                 "max_tokens": 4000,
                 "temperature": 0.3,
                 "request_delay": 0.5,  # Increase request delay

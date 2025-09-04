@@ -6,7 +6,7 @@ GitHub Repository Downloader MCP Tool using FastMCP
 import asyncio
 import os
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 from mcp.server import FastMCP
@@ -130,7 +130,7 @@ async def check_git_installed() -> bool:
         return False
 
 
-async def clone_repository(repo_url: str, target_path: str) -> Dict[str, any]:
+async def clone_repository(repo_url: str, target_path: str) -> Dict[str, Any]:
     """执行git clone命令"""
     try:
         proc = await asyncio.create_subprocess_exec(

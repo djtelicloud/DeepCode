@@ -7,10 +7,11 @@
 
 import json
 import os
-import yaml
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
+
+import yaml
 
 
 class SimpleLLMLogger:
@@ -52,7 +53,7 @@ class SimpleLLMLogger:
                 "log_level": "basic",
                 "log_directory": "logs/llm_responses",
                 "filename_pattern": "llm_responses_{timestamp}.jsonl",
-                "include_models": ["claude-sonnet-4", "gpt-4", "o3-mini"],
+                "include_models": ["gpt-5", "gpt-4", "o3-mini"],
                 "min_response_length": 50,
             }
         }
@@ -191,7 +192,7 @@ if __name__ == "__main__":
     # 测试日志记录
     log_llm_response(
         content="这是一个测试的LLM响应内容，用于验证简化日志记录器的功能是否正常工作。",
-        model="claude-sonnet-4-20250514",
+        model="gpt-5",
         agent="TestAgent",
     )
 

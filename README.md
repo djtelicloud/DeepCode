@@ -311,7 +311,7 @@ DeepCode leverages the **Model Context Protocol (MCP)** standard to seamlessly i
 | 🛠️ **MCP Server** | 🔧 **Primary Function** | 💡 **Purpose & Capabilities** |
 |-------------------|-------------------------|-------------------------------|
 | **🔍 brave** | Web Search Engine | Real-time information retrieval via Brave Search API |
-| **🌐 bocha-mcp** | Alternative Search | Secondary search option with independent API access |
+| **🌐 openai-mcp** | Alternative Search | Secondary search option with independent API access |
 | **📂 filesystem** | File System Operations | Local file and directory management, read/write operations |
 | **🌐 fetch** | Web Content Retrieval | Fetch and extract content from URLs and web resources |
 | **📥 github-downloader** | Repository Management | Clone and download GitHub repositories for analysis |
@@ -469,7 +469,7 @@ curl -O https://raw.githubusercontent.com/HKUDS/DeepCode/main/mcp_agent.secrets.
 # 🔑 Configure search API keys for web search (optional)
 # Edit mcp_agent.config.yaml to set your API keys:
 # - For Brave Search: Set BRAVE_API_KEY: "your_key_here" in brave.env section (line ~28)
-# - For Bocha-MCP: Set BOCHA_API_KEY: "your_key_here" in bocha-mcp.env section (line ~74)
+# - For openai-MCP: Set openai_API_KEY: "your_key_here" in openai-mcp.env section (line ~74)
 
 # 📄 Configure document segmentation (optional)
 # Edit mcp_agent.config.yaml to control document processing:
@@ -505,7 +505,7 @@ uv pip install -r requirements.txt
 # 🔑 Configure search API keys for web search (optional)
 # Edit mcp_agent.config.yaml to set your API keys:
 # - For Brave Search: Set BRAVE_API_KEY: "your_key_here" in brave.env section (line ~28)
-# - For Bocha-MCP: Set BOCHA_API_KEY: "your_key_here" in bocha-mcp.env section (line ~74)
+# - For openai-MCP: Set openai_API_KEY: "your_key_here" in openai-mcp.env section (line ~74)
 
 # 📄 Configure document segmentation (optional)
 # Edit mcp_agent.config.yaml to control document processing:
@@ -531,7 +531,7 @@ pip install -r requirements.txt
 # 🔑 Configure search API keys for web search (optional)
 # Edit mcp_agent.config.yaml to set your API keys:
 # - For Brave Search: Set BRAVE_API_KEY: "your_key_here" in brave.env section (line ~28)
-# - For Bocha-MCP: Set BOCHA_API_KEY: "your_key_here" in bocha-mcp.env section (line ~74)
+# - For openai-MCP: Set openai_API_KEY: "your_key_here" in openai-mcp.env section (line ~74)
 
 # 📄 Configure document segmentation (optional)
 # Edit mcp_agent.config.yaml to control document processing:
@@ -575,7 +575,7 @@ DeepCode supports multiple search servers for web search functionality. You can 
 
 ```yaml
 # Default search server configuration
-# Options: "brave" or "bocha-mcp"
+# Options: "brave" or "openai-mcp"
 default_search_server: "brave"
 ```
 
@@ -585,9 +585,9 @@ default_search_server: "brave"
   - Requires BRAVE_API_KEY configuration
   - Recommended for most users
 
-- **🌐 Bocha-MCP** (`"bocha-mcp"`):
+- **🌐 openai-MCP** (`"openai-mcp"`):
   - Alternative search server option
-  - Requires BOCHA_API_KEY configuration
+  - Requires openai_API_KEY configuration
   - Uses local Python server implementation
 
 **API Key Configuration in mcp_agent.config.yaml:**
@@ -599,13 +599,13 @@ brave:
   env:
     BRAVE_API_KEY: "your_brave_api_key_here"
 
-# For Bocha-MCP (alternative) - around line 74
-bocha-mcp:
+# For openai-MCP (alternative) - around line 74
+openai-mcp:
   command: "python"
-  args: ["tools/bocha_search_server.py"]
+  args: ["tools/openai_search_server.py"]
   env:
     PYTHONPATH: "."
-    BOCHA_API_KEY: "your_bocha_api_key_here"
+    openai_API_KEY: "your_openai_api_key_here"
 ```
 
 > **💡 Tip**: Both search servers require API key configuration. Choose the one that best fits your API access and requirements.

@@ -9,7 +9,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 
 class DialogueLogger:
@@ -18,7 +18,7 @@ class DialogueLogger:
     Captures complete conversation rounds with proper formatting and organization
     """
 
-    def __init__(self, paper_id: str, base_path: str = None):
+    def __init__(self, paper_id: str, base_path: Optional[str] = None):
         """
         Initialize dialogue logger for a specific paper
 
@@ -83,7 +83,7 @@ This log contains the complete conversation rounds between the user and assistan
             print(f"⚠️ Failed to initialize log file: {e}")
 
     def start_new_round(
-        self, round_type: str = "implementation", context: Dict[str, Any] = None
+        self, round_type: str = "implementation", context: Optional[Dict[str, Any]] = None
     ):
         """
         Start a new dialogue round
@@ -490,10 +490,10 @@ This log contains the complete conversation rounds between the user and assistan
         system_prompt: str = "",
         user_message: str = "",
         assistant_response: str = "",
-        tool_calls: List[Dict] = None,
-        tool_results: List[Dict] = None,
-        round_type: str = "exchange",
-        context: Dict = None,
+    tool_calls: Optional[List[Dict]] = None,
+    tool_results: Optional[List[Dict]] = None,
+    round_type: str = "exchange",
+    context: Optional[Dict] = None,
         summary: str = "",
     ):
         """
@@ -573,7 +573,7 @@ This log contains the complete conversation rounds between the user and assistan
 
 
 # Utility functions for easy integration
-def create_dialogue_logger(paper_id: str, base_path: str = None) -> DialogueLogger:
+def create_dialogue_logger(paper_id: str, base_path: Optional[str] = None) -> DialogueLogger:
     """
     Create a dialogue logger for a specific paper
 

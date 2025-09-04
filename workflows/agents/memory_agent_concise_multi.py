@@ -24,7 +24,7 @@ import logging
 import os
 import time
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 class ConciseMemoryAgent:
@@ -69,8 +69,7 @@ class ConciseMemoryAgent:
 
         # Store default models configuration
         self.default_models = default_models or {
-            "anthropic": "claude-sonnet-4-20250514",
-            "openai": "gpt-4o",
+            "openai": "gpt-5",
         }
 
         # Memory state tracking - new logic: trigger after each write_multiple_files
@@ -119,19 +118,15 @@ class ConciseMemoryAgent:
 
     async def create_multi_code_implementation_summary(
         self,
-        client,
-        client_type: str,
         file_implementations: Dict[str, str],
         files_implemented: int,
         implemented_files: List[str],  # Receive from workflow
     ) -> str:
         """
-        Create LLM-based code implementation summary for multiple files
+        Create GPT-5 based code implementation summary for multiple files
         ONLY AVAILABLE METHOD: Handles multiple files simultaneously with separate summaries for each
 
         Args:
-            client: LLM client instance
-            client_type: Type of LLM client ("anthropic" or "openai")
             file_implementations: Dictionary mapping file_path to implementation_content
             files_implemented: Number of files implemented so far
             implemented_files: List of all implemented files (from workflow)
@@ -156,14 +151,12 @@ class ConciseMemoryAgent:
             summary_messages = [{"role": "user", "content": summary_prompt}]
 
             # Get LLM-generated summary
-            llm_response = await self._call_llm_for_summary(
-                client, client_type, summary_messages
-            )
+            llm_response = await self._call_llm_for_summary(summary_messages)
             llm_summary = llm_response.get("content", "")
 
             # Extract sections for each file and next steps
             multi_sections = self._extract_multi_summary_sections(
-                llm_summary, file_implementations.keys()
+                llm_summary, list(file_implementations.keys())
             )
 
             # Format and save summary for each file (WITHOUT Next Steps)
@@ -603,62 +596,31 @@ class ConciseMemoryAgent:
             self.logger.error(f"Failed to save code implementation summary: {e}")
 
     async def _call_llm_for_summary(
-        self, client, client_type: str, summary_messages: List[Dict]
+        self, summary_messages: List[Dict]
     ) -> Dict[str, Any]:
         """
-        Call LLM for code implementation summary generation ONLY
+        Call GPT-5 for code implementation summary generation ONLY
 
         This method is used only for creating code implementation summaries,
         NOT for conversation summarization which has been removed.
         """
-        if client_type == "anthropic":
-            response = await client.messages.create(
-                model=self.default_models["anthropic"],
-                system="You are an expert code implementation summarizer. Create structured summaries of implemented code files that preserve essential information about functions, dependencies, and implementation approaches.",
-                messages=summary_messages,
-                max_tokens=8000,  # Increased for multi-file support
-                temperature=0.2,
-            )
+        from tools.gpt_client import GPTClient
 
-            content = ""
-            for block in response.content:
-                if block.type == "text":
-                    content += block.text
+        # Convert messages to single prompt string for GPTClient
+        system_prompt = "You are an expert code implementation summarizer. Create structured summaries of implemented code files that preserve essential information about functions, dependencies, and implementation approaches."
 
-            return {"content": content}
+        user_content = ""
+        for msg in summary_messages:
+            if msg.get("role") == "user":
+                user_content += msg.get("content", "")
 
-        elif client_type == "openai":
-            openai_messages = [
-                {
-                    "role": "system",
-                    "content": "You are an expert code implementation summarizer. Create structured summaries of implemented code files that preserve essential information about functions, dependencies, and implementation approaches.",
-                }
-            ]
-            openai_messages.extend(summary_messages)
+        full_prompt = f"{system_prompt}\n\n{user_content}"
 
-            # Try max_tokens and temperature first, fallback to max_completion_tokens without temperature if unsupported
-            try:
-                response = await client.chat.completions.create(
-                    model=self.default_models["openai"],
-                    messages=openai_messages,
-                    max_tokens=8000,  # Increased for multi-file support
-                    temperature=0.2,
-                )
-            except Exception as e:
-                if "max_tokens" in str(e) and "max_completion_tokens" in str(e):
-                    # Retry with max_completion_tokens and no temperature for models that require it
-                    response = await client.chat.completions.create(
-                        model=self.default_models["openai"],
-                        messages=openai_messages,
-                        max_completion_tokens=8000,  # Increased for multi-file support
-                    )
-                else:
-                    raise
+        # Use GPTClient with responses API
+        gpt_client = GPTClient()
+        content = await gpt_client.web_search(full_prompt)
 
-            return {"content": response.choices[0].message.content or ""}
-
-        else:
-            raise ValueError(f"Unsupported client type: {client_type}")
+        return {"content": content}
 
     def start_new_round(self, iteration: Optional[int] = None):
         """Start a new dialogue round and reset tool results
@@ -729,8 +691,8 @@ class ConciseMemoryAgent:
         task_description: str,
         file_batch: List[str],
         is_first_batch: bool = True,
-        implemented_files: List[str] = None,  # Receive from workflow
-        all_files: List[str] = None,  # NEW: Receive all files from workflow
+    implemented_files: Optional[List[str]] = None,  # Receive from workflow
+        all_files: Optional[List[str]] = None,  # NEW: Receive all files from workflow
     ) -> List[Dict[str, Any]]:
         """
         Create concise message list for LLM input specifically for revision execution
@@ -1071,7 +1033,7 @@ class ConciseMemoryAgent:
             return str(tool_result)
 
     def get_memory_statistics(
-        self, all_files: List[str] = None, implemented_files: List[str] = None
+        self, all_files: Optional[List[str]] = None, implemented_files: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Get memory agent statistics for multi-file operations
@@ -1132,8 +1094,6 @@ class ConciseMemoryAgent:
 
     async def synchronize_revised_file_memory(
         self,
-        client,
-        client_type: str,
         revised_file_path: str,
         diff_content: str,
         new_content: str,
@@ -1143,8 +1103,6 @@ class ConciseMemoryAgent:
         Synchronize memory for a single revised file with diff information
 
         Args:
-            client: LLM client instance
-            client_type: Type of LLM client ("anthropic" or "openai")
             revised_file_path: Path of the revised file
             diff_content: Unified diff showing changes made
             new_content: Complete new content of the file
@@ -1166,9 +1124,7 @@ class ConciseMemoryAgent:
             summary_messages = [{"role": "user", "content": revision_prompt}]
 
             # Get LLM-generated revision summary
-            llm_response = await self._call_llm_for_summary(
-                client, client_type, summary_messages
-            )
+            llm_response = await self._call_llm_for_summary(summary_messages)
             llm_summary = llm_response.get("content", "")
 
             # Extract summary sections
@@ -1199,14 +1155,12 @@ class ConciseMemoryAgent:
             )
 
     async def synchronize_multiple_revised_files(
-        self, client, client_type: str, revision_results: List[Dict[str, Any]]
+        self, revision_results: List[Dict[str, Any]]
     ) -> Dict[str, str]:
         """
         Synchronize memory for multiple revised files based on revision results
 
         Args:
-            client: LLM client instance
-            client_type: Type of LLM client
             revision_results: List of revision results with file paths, diffs, and new content
 
         Returns:
@@ -1227,8 +1181,6 @@ class ConciseMemoryAgent:
 
                 if file_path and revision_result.get("success", False):
                     summary = await self.synchronize_revised_file_memory(
-                        client,
-                        client_type,
                         file_path,
                         diff_content,
                         new_content,

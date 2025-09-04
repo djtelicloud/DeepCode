@@ -19,7 +19,7 @@ Key Improvement:
 
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 import logging
 
@@ -130,7 +130,7 @@ def extract_relationships(index_data: Dict) -> List[RelationshipInfo]:
 
 
 def calculate_relevance_score(
-    target_file: str, reference: CodeReference, keywords: List[str] = None
+    target_file: str, reference: CodeReference, keywords: Optional[List[str]] = None
 ) -> float:
     """Calculate relevance score between reference code and target file"""
     score = 0.0
@@ -175,7 +175,7 @@ def calculate_relevance_score(
 def find_relevant_references_in_cache(
     target_file: str,
     index_cache: Dict[str, Dict],
-    keywords: List[str] = None,
+    keywords: Optional[List[str]] = None,
     max_results: int = 10,
 ) -> List[Tuple[CodeReference, float]]:
     """Find reference code relevant to target file from provided cache"""

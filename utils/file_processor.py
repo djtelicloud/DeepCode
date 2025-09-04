@@ -265,10 +265,11 @@ class FileProcessor:
 
     @classmethod
     async def process_file_input(
-        cls, file_input: Union[str, Dict], base_dir: str = None
+        cls, file_input: Union[str, Dict], base_dir: Optional[str] = None
     ) -> Dict:
         """
         Process file input information and return the structured content.
+        Enhanced with smart project management and timeout handling.
 
         Args:
             file_input: File input information (JSON string, dict, or direct file path)
@@ -278,6 +279,15 @@ class FileProcessor:
             Dict: The structured content with sections and standardized text
         """
         try:
+            # Import smart project management and path safety here to avoid circular imports
+            from utils.path_safety import (PathSafetyManager, safe_makedirs,
+                                           validate_path)
+            from utils.project_choice_ui import interactive_project_setup
+            from utils.smart_project_manager import SmartProjectManager
+
+            # Initialize path safety
+            path_safety = PathSafetyManager()
+
             # 首先尝试从字符串中提取markdown文件路径
             if isinstance(file_input, str):
                 import re
@@ -287,22 +297,53 @@ class FileProcessor:
                     paper_path = file_path_match.group(1)
                     file_input = {"paper_path": paper_path}
 
-            # Extract paper directory path
-            paper_dir = cls.extract_file_path(file_input)
+            # Use smart project management system
+            projects_base_dir = "./deepcode_lab/projects/"
+            if base_dir:
+                projects_base_dir = os.path.join(base_dir, "projects")
 
-            # If base_dir is provided, adjust paper_dir to be relative to base_dir
-            if base_dir and paper_dir:
-                # If paper_dir is using default location, move it to base_dir
-                if paper_dir.endswith(("deepcode_lab", "agent_folders")):
-                    paper_dir = base_dir
-                else:
-                    # Extract the relative part and combine with base_dir
-                    paper_name = os.path.basename(paper_dir)
-                    # 保持原始目录名不变，不做任何替换
-                    paper_dir = os.path.join(base_dir, "papers", paper_name)
+            # Validate and ensure safe path
+            projects_base_dir = validate_path(projects_base_dir)
 
-                # Ensure the directory exists
-                os.makedirs(paper_dir, exist_ok=True)
+            # Extract title from input
+            manager = SmartProjectManager(projects_base_dir)
+            suggested_title = manager._extract_title_from_payload(file_input)
+
+            # Check if we're in interactive mode (can be set via environment or config)
+            interactive_mode = os.getenv("DEEPCODE_INTERACTIVE", "true").lower() == "true"
+
+            project_result = None
+
+            if interactive_mode:
+                # Use interactive project setup with timeout handling
+                try:
+                    project_result = interactive_project_setup(suggested_title, file_input)
+
+                    if project_result.get("action") == "cancelled":
+                        # If user cancels, fall back to intelligent auto-choice
+                        print("🤖 User cancelled, using intelligent auto-choice...")
+                        project_result = manager.make_intelligent_auto_choice(suggested_title, file_input)
+
+                except (KeyboardInterrupt, EOFError, OSError, Exception) as e:
+                    # Fall back to intelligent auto-choice if interactive fails
+                    print(f"🤖 Interactive mode failed ({type(e).__name__}), using intelligent auto-choice...")
+                    project_result = manager.make_intelligent_auto_choice(suggested_title, file_input)
+
+            if not project_result:
+                # Use intelligent auto-choice as fallback
+                print(f"🤖 Using intelligent auto-choice...")
+                project_result = manager.make_intelligent_auto_choice(suggested_title, file_input)
+
+            paper_dir = project_result["folder_path"]
+            is_continuing = project_result["action"] in ["continued_existing", "using_existing"]
+            project_info = project_result.get("metadata", {})
+
+            print(f"📁 Using project directory: {paper_dir}")
+
+            # Ensure the directory exists safely
+            if paper_dir:
+                paper_dir = validate_path(paper_dir)
+                safe_makedirs(paper_dir, exist_ok=True)
 
             if not paper_dir:
                 raise ValueError("Could not determine paper directory path")
@@ -317,12 +358,12 @@ class FileProcessor:
                         file_path = parsed_json.get("paper_path")
                         # 如果文件不存在，尝试查找markdown文件
                         if file_path and not os.path.exists(file_path):
-                            paper_dir = os.path.dirname(file_path)
-                            if os.path.isdir(paper_dir):
-                                file_path = cls.find_markdown_file(paper_dir)
+                            paper_dir_from_path = os.path.dirname(file_path)
+                            if os.path.isdir(paper_dir_from_path):
+                                file_path = cls.find_markdown_file(paper_dir_from_path)
                                 if not file_path:
                                     raise ValueError(
-                                        f"No markdown file found in directory: {paper_dir}"
+                                        f"No markdown file found in directory: {paper_dir_from_path}"
                                     )
                     else:
                         raise ValueError("Invalid JSON format: missing paper_path")
@@ -333,12 +374,12 @@ class FileProcessor:
                         file_path = extracted_json.get("paper_path")
                         # 如果文件不存在，尝试查找markdown文件
                         if file_path and not os.path.exists(file_path):
-                            paper_dir = os.path.dirname(file_path)
-                            if os.path.isdir(paper_dir):
-                                file_path = cls.find_markdown_file(paper_dir)
+                            paper_dir_from_path = os.path.dirname(file_path)
+                            if os.path.isdir(paper_dir_from_path):
+                                file_path = cls.find_markdown_file(paper_dir_from_path)
                                 if not file_path:
                                     raise ValueError(
-                                        f"No markdown file found in directory: {paper_dir}"
+                                        f"No markdown file found in directory: {paper_dir_from_path}"
                                     )
                     else:
                         # 不是JSON，按文件路径处理
@@ -372,12 +413,12 @@ class FileProcessor:
                 file_path = file_input.get("paper_path")
                 # If the file doesn't exist, try to find markdown in the directory
                 if file_path and not os.path.exists(file_path):
-                    paper_dir = os.path.dirname(file_path)
-                    if os.path.isdir(paper_dir):
-                        file_path = cls.find_markdown_file(paper_dir)
+                    paper_dir_from_path = os.path.dirname(file_path)
+                    if os.path.isdir(paper_dir_from_path):
+                        file_path = cls.find_markdown_file(paper_dir_from_path)
                         if not file_path:
                             raise ValueError(
-                                f"No markdown file found in directory: {paper_dir}"
+                                f"No markdown file found in directory: {paper_dir_from_path}"
                             )
 
             if not file_path:
@@ -397,6 +438,8 @@ class FileProcessor:
                 "file_path": file_path,
                 "sections": structured_content,
                 "standardized_text": standardized_text,
+                "directory_reused": is_continuing,
+                "project_info": project_info,
             }
 
         except Exception as e:

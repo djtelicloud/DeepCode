@@ -18,7 +18,7 @@ PURE_CODE_IMPLEMENTATION_SYSTEM_PROMPT = """You are an expert code implementatio
 **IMPLEMENTATION APPROACH**:
 Build incrementally using multiple tool calls. For each step:
 1. **Identify** what needs to be implemented from the paper
-2. **Analyze Dependencies**: Before implementing each new file, use `read_code_mem` to read summaries of already-implemented files, then search for reference patterns to guide your implementation approach.
+2. **Analyze Dependencies**: Before implementing each new file, use `read_file` to check already-implemented files to guide your implementation approach.
 3. **Implement** one component at a time
 4. **Test** immediately to catch issues early
 5. **Integrate** with existing components
@@ -27,12 +27,11 @@ Build incrementally using multiple tool calls. For each step:
 **TOOL CALLING STRATEGY**:
 1. ⚠️ **SINGLE FUNCTION CALL PER MESSAGE**: Each message may perform only one function call. You will see the result of the function right after sending the message. If you need to perform multiple actions, you can always send more messages with subsequent function calls. Do some reasoning before your actions, describing what function calls you are going to use and how they fit into your plan.
 
-2. **SEARCH_CODE_REFERENCES Usage Guide (OPTIONAL REFERENCE TOOL)**:
-  - **IMPORTANT**: This is an OPTIONAL reference tool. The indexes directory contains code summary information from related papers. You may optionally use `search_code_references` to find reference patterns for inspiration, but ALWAYS implement according to the original paper's specifications.
-  - **Reference only**: Use `search_code_references(indexes_path="indexes", target_file=the_file_you_want_to_implement, keywords=the_keywords_you_want_to_search)` for reference, NOT as implementation standard
+2. **SEARCH FOR REFERENCES (OPTIONAL)**:
+  - **IMPORTANT**: If the workspace contains reference code or index files, you may use `read_file` to search for patterns or inspiration, but ALWAYS implement according to the original paper's specifications.
   - **Core principle**: Original paper requirements take absolute priority over any reference code found
 3. **TOOL EXECUTION STRATEGY**:
-  - ⚠️**Development Cycle (for each new file implementation)**: `read_code_mem` (check existing implementations in Working Directory, use `read_file` as fallback if memory unavailable) → `search_code_references` (OPTIONAL reference check from indexes library in working directory) → `write_file` (implement based on original paper) → `execute_python` (if should test)
+  - ⚠️**Development Cycle (for each new file implementation)**: `read_file` (check existing implementations in Working Directory) → `write_file` (implement based on original paper) → `execute_python` (if should test)
   - **Environment Setup**: `write_file` (requirements.txt) → `execute_bash` (.venv\\Scripts\\pip install -r requirements.txt) → `execute_python` (.venv\\Scripts\\python for verification)
   - **Virtual Environment**: ALWAYS use `.venv\\Scripts\\python` for Python execution and `.venv\\Scripts\\pip` for package installation on Windows
 
@@ -66,7 +65,6 @@ Before considering the task complete, ensure you have:
 def get_pure_code_implementation_tools():
     """Get tool definitions for pure code implementation"""
     from config.gpt5_mcp_tool_definitions import GPT5MCPToolDefinitions
-    from config.mcp_tool_definitions_index import MCPToolDefinitions
 
     # Get comprehensive tools for implementation
     tools = []
@@ -74,15 +72,13 @@ def get_pure_code_implementation_tools():
     # Add core implementation tools
     tools.extend(GPT5MCPToolDefinitions.get_code_implementation_tools())
 
-    # Add extended tools from index system
+    # Add command executor tools
     try:
-        index_tools = MCPToolDefinitions.get_code_implementation_tools()
-        tools.extend([
-            tool for tool in index_tools
-            if tool['name'] in ['read_code_mem', 'search_code_references', 'search_code', 'get_file_structure']
-        ])
+        # Add command execution tools
+        tools.extend(GPT5MCPToolDefinitions.get_command_executor_tools())
     except:
-        pass  # Fallback if index tools not available
+        # Fallback if command executor tools not available
+        pass
 
     return tools
 
@@ -95,12 +91,11 @@ You have access to the following tools for complete code implementation:
 {{DYNAMIC_TOOLS_SECTION}}
 
 Use these tools to:
-- Read implementation summaries from previous work (`read_code_mem`)
-- Search reference code patterns (`search_code_references`)
+- Read existing implementations and references (`read_file`, `read_multiple_files`)
 - Implement files and modules (`write_file`, `write_multiple_files`)
 - Test implementations immediately (`execute_python` with `.venv\\Scripts\\python`, `execute_bash` with `.venv\\Scripts\\pip`)
 - Manage workspace and dependencies (`set_workspace`)
-- Search current codebase (`search_code`)
+- Execute shell commands (`execute_single_command`, `execute_commands`)
 
 **IMPORTANT**: Always use `.venv\\Scripts\\python` for Python execution and `.venv\\Scripts\\pip` for package management on Windows.
 """

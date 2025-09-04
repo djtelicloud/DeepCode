@@ -29,9 +29,26 @@ class GPT5ToolConverter:
         # Handle parameters
         parameters = mcp_tool.get("parameters", {})
 
+        # Create a deep copy to avoid modifying the original
+        import copy
+        parameters = copy.deepcopy(parameters)
+
         # Ensure additionalProperties is set (GPT-5 requirement)
-        if "additionalProperties" not in parameters:
-            parameters["additionalProperties"] = False
+        parameters["additionalProperties"] = False  # Always set to false for GPT-5
+
+        # Ensure all properties listed in "required" are actually in "properties"
+        if "required" in parameters and "properties" in parameters:
+            required_props = parameters.get("required", [])
+            existing_props = parameters.get("properties", {})
+
+            for prop in required_props:
+                if prop not in existing_props:
+                    # Add missing property with a default string type
+                    parameters["properties"][prop] = {
+                        "type": "string",
+                        "description": f"Required parameter: {prop}"
+                    }
+                    print(f"Warning: Added missing required property '{prop}' to tool '{tool_name}'")
 
         # Convert to GPT-5 format
         gpt5_tool = {

@@ -96,6 +96,18 @@ class GPTClient:
             str: Parsed text content
         """
         try:
+            # First, extract tool calls if they exist
+            tool_calls = self._extract_tool_calls(response)
+
+            # If we have tool calls, return a special format that code_implementation_workflow can understand
+            if tool_calls:
+                import json
+                return json.dumps({
+                    "tool_calls": tool_calls,
+                    "content": "I'll help you with this task using the available tools."
+                })
+
+            # Otherwise proceed with normal text extraction
             if hasattr(response, 'output') and response.output:
                 # Find the message output (not reasoning)
                 for output_item in response.output:
@@ -126,6 +138,35 @@ class GPTClient:
         except Exception as e:
             print(f"Error parsing response: {e}")
             return str(response)
+
+    def _extract_tool_calls(self, response):
+        """
+        Extract tool calls from GPT-5 Responses API response format
+
+        Args:
+            response: Response object from GPT-5 Responses API
+
+        Returns:
+            list: List of tool calls or empty list if none found
+        """
+        tool_calls = []
+
+        try:
+            if hasattr(response, 'output') and response.output:
+                for output_item in response.output:
+                    # Look for tool_calls in the response
+                    if hasattr(output_item, 'tool_calls') and output_item.tool_calls:
+                        for tool_call in output_item.tool_calls:
+                            if hasattr(tool_call, 'name') and hasattr(tool_call, 'input'):
+                                tool_calls.append({
+                                    "name": tool_call.name,
+                                    "input": tool_call.input,
+                                    "id": getattr(tool_call, 'id', f"tool_{len(tool_calls)}")
+                                })
+        except Exception as e:
+            print(f"Error extracting tool calls: {e}")
+
+        return tool_calls
 
     async def structured_response(self, input_text: str, schema: Dict[str, Any], model: str = "gpt-5") -> str:
         """

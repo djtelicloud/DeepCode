@@ -358,12 +358,6 @@ class CodeImplementationAgent:
     # _handle_read_code_mem method removed - read_code_mem is now a proper MCP tool
 
     async def _handle_read_file_with_memory_optimization(self, tool_call: Dict) -> Dict[str, Any]:
-        # Fallback return to satisfy type checker
-        return {
-            "tool_id": tool_call.get("id", "unknown"),
-            "tool_name": "read_file",
-            "result": json.dumps({"status": "error", "message": "Unknown error in _handle_read_file_with_memory_optimization"}, ensure_ascii=False),
-        }
         """
         Intercept read_file calls and redirect to read_code_mem if a summary exists.
         This prevents unnecessary file reads if the summary is already available.
@@ -389,8 +383,6 @@ class CodeImplementationAgent:
                 )
 
                 # Parse the result to check if summary was found
-                import json
-
                 if isinstance(read_code_mem_result, str):
                     try:
                         result_data = json.loads(read_code_mem_result)
@@ -416,8 +408,6 @@ class CodeImplementationAgent:
                 )
 
                 # Modify the result to indicate it was originally a read_file call
-                import json
-
                 try:
                     result_data = (
                         json.loads(result) if isinstance(result, str) else result
@@ -464,6 +454,15 @@ class CodeImplementationAgent:
                 self.logger.warning(
                     "MCP agent not available for read_code_mem optimization"
                 )
+                # Return a fallback error when MCP agent is not available
+                return {
+                    "tool_id": tool_call["id"],
+                    "tool_name": "read_file",
+                    "result": json.dumps(
+                        {"status": "error", "message": "MCP agent not initialized for optimization"},
+                        ensure_ascii=False,
+                    ),
+                }
         else:
             self.logger.info(
                 f"📁 READ_FILE: No summary for {file_path}, using actual file"
@@ -619,7 +618,7 @@ class CodeImplementationAgent:
             current_token_count > self.summary_trigger_tokens
             and current_token_count
             > self.last_summary_token_count
-            + 10000  # Minimum 10k tokens between summaries / 总结间最少10k tokens
+            + 20000  # Minimum 10k tokens between summaries / 总结间最少10k tokens
         )
 
         if should_trigger:

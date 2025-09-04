@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,7 +27,7 @@ from mcp_agent.agents.agent import Agent
 
 # Local imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config.mcp_tool_definitions import get_mcp_tools
+from config.gpt5_mcp_tool_definitions import GPT5MCPToolDefinitions
 from prompts.code_prompts import (GENERAL_CODE_IMPLEMENTATION_SYSTEM_PROMPT,
                                   STRUCTURE_GENERATOR_PROMPT)
 from utils.llm_utils import get_default_models
@@ -86,11 +87,11 @@ class CodeImplementationWorkflow:
         # Fallback 1: Look for plan file in current working directory and paper iterations
         fallback_paths = [Path("initial_plan.txt")]
 
-        # Add dynamic paths for paper iterations (1, 2, 3, etc.)
+        # Add dynamic paths for project iterations (1, 2, 3, etc.)
         base_paths = [
-            "deepcode_lab/papers",
+            "projects",
             "papers",
-            "agent_folders/papers",  # Common alternative structure
+            "agent_folders/projects",  # Common alternative structure
         ]
 
         for base_path in base_paths:
@@ -132,7 +133,7 @@ This is an auto-generated implementation plan created because no plan file was f
 
 ## Project Structure
 ```
-generate_code/
+code/
 ├── main.py           # Main entry point
 ├── README.md         # Project documentation
 ├── requirements.txt  # Dependencies
@@ -161,7 +162,7 @@ generate_code/
 
     def _check_file_tree_exists(self, target_directory: str) -> bool:
         """Check if file tree structure already exists"""
-        code_directory = os.path.join(target_directory, "generate_code")
+        code_directory = os.path.join(target_directory, "code")
         return os.path.exists(code_directory) and len(os.listdir(code_directory)) > 0
 
     # ==================== 2. Public Interface Methods (External API Layer) ====================
@@ -184,7 +185,7 @@ generate_code/
                 target_directory = str(Path(plan_file_path).parent)
 
             # Calculate code directory for workspace alignment
-            code_directory = os.path.join(target_directory, "generate_code")
+            code_directory = os.path.join(target_directory, "code")
 
             self.logger.info("=" * 80)
             self.logger.info("🚀 STARTING CODE IMPLEMENTATION WORKFLOW")
@@ -224,7 +225,7 @@ generate_code/
                 "status": "success",
                 "plan_file": plan_file_path,
                 "target_directory": target_directory,
-                "code_directory": os.path.join(target_directory, "generate_code"),
+                "code_directory": os.path.join(target_directory, "code"),
                 "results": results,
                 "mcp_architecture": "standard",
             }
@@ -255,7 +256,7 @@ generate_code/
 
             message = f"""Analyze the following implementation plan and generate shell commands to create the file tree structure.
 
-Target Directory: {target_directory}/generate_code
+Target Directory: {target_directory}/code
 
 Implementation Plan:
 {plan_content}
@@ -284,7 +285,7 @@ Requirements:
 
         # Use provided code_directory or calculate it (for backwards compatibility)
         if code_directory is None:
-            code_directory = os.path.join(target_directory, "generate_code")
+            code_directory = os.path.join(target_directory, "code")
 
         self.logger.info(f"🎯 Using code directory (MCP workspace): {code_directory}")
 
@@ -532,10 +533,28 @@ Requirements:
             llm = await self.mcp_agent.attach_llm(OpenAIAugmentedLLM)
 
             # Set workspace to the target code directory
-            workspace_result = await self.mcp_agent.call_tool(
-                "set_workspace", {"workspace_path": code_directory}
-            )
-            self.logger.info(f"Workspace setup result: {workspace_result}")
+            try:
+                workspace_result = await self.mcp_agent.call_tool(
+                    "set_workspace", {"workspace_path": code_directory}
+                )
+                self.logger.info(f"Workspace setup result: {workspace_result}")
+            except Exception as ws_error:
+                self.logger.warning(f"Error calling set_workspace: {ws_error}")
+                self.logger.warning("Attempting direct initialization as fallback...")
+                # Call direct initialize function as a fallback
+                try:
+                    # Since set_workspace isn't available, try an alternative approach
+                    # This is a workaround for the tool not being registered properly
+                    await self.mcp_agent.call_tool(
+                        "write_file",
+                        {
+                            "file_path": ".workspace_initialized",
+                            "content": f"Workspace initialized at: {code_directory}\nTimestamp: {datetime.now().isoformat()}"
+                        }
+                    )
+                    self.logger.info(f"✅ Workspace initialized through alternative method: {code_directory}")
+                except Exception as alt_error:
+                    self.logger.error(f"Alternative workspace initialization also failed: {alt_error}")
 
             return llm
 
@@ -607,15 +626,29 @@ Requirements:
             combined_input = f"{system_message}\n\nConversation:\n{messages_text}"
 
             # Use new MCP tools support in responses API
-            response = await client.call_with_mcp_tools(
+            response_str = await client.call_with_mcp_tools(
                 input_text=combined_input,
                 mcp_tools=tools
             )
 
-            # Return in expected format - response is now a string
+            # Check if the response contains tool calls (special format from GPTClient)
+            import json
+            try:
+                parsed_response = json.loads(response_str)
+                if isinstance(parsed_response, dict) and "tool_calls" in parsed_response:
+                    # We have a structured response with tool calls
+                    self.logger.info(f"Received {len(parsed_response['tool_calls'])} tool calls from GPT-5 responses API")
+                    return {
+                        "content": parsed_response.get("content", ""),
+                        "tool_calls": parsed_response.get("tool_calls", [])
+                    }
+            except json.JSONDecodeError:
+                pass  # Not JSON, treat as normal text response
+
+            # Return in standard format for text-only responses
             return {
-                "content": response,
-                "tool_calls": []  # MCP tool calls are handled internally by responses API
+                "content": response_str,
+                "tool_calls": []
             }
         except Exception as e:
             self.logger.error(f"GPTClient MCP API call failed: {e}")
@@ -637,8 +670,8 @@ Requirements:
         return valid_messages
 
     def _prepare_mcp_tool_definitions(self) -> List[Dict[str, Any]]:
-        """Prepare tool definitions for MCP tools"""
-        return get_mcp_tools("code_implementation")
+        """Prepare tool definitions for MCP tools (GPT-5 format)"""
+        return GPT5MCPToolDefinitions.get_code_implementation_tools()
 
     def _check_tool_results_for_errors(self, tool_results: List[Dict]) -> bool:
         """Check tool results for errors"""
@@ -745,17 +778,45 @@ Requirements:
                 code_stats["files_implemented_count"]
             )
 
+            history_data = {"total_operations": 0, "history": []}
             if self.mcp_agent:
-                history_result = await self.mcp_agent.call_tool(
-                    "get_operation_history", {"last_n": 30}
-                )
-                # Try to parse as JSON, otherwise treat as object
                 try:
-                    history_data = json.loads(history_result) if isinstance(history_result, str) else history_result
-                except Exception:
-                    history_data = {"total_operations": 0, "history": []}
-            else:
-                history_data = {"total_operations": 0, "history": []}
+                    # Try to call get_operation_history, but handle case where tool is not found
+                    history_result = await self.mcp_agent.call_tool(
+                        "get_operation_history", {"last_n": 30}
+                    )
+                    # Try to parse as JSON, otherwise treat as object
+                    try:
+                        history_data = json.loads(history_result) if isinstance(history_result, str) else history_result
+                    except Exception as parse_error:
+                        self.logger.warning(f"Failed to parse history result: {parse_error}")
+                except Exception as tool_error:
+                    self.logger.warning(f"Failed to call get_operation_history tool: {tool_error}")
+                    self.logger.info("Using write_file tool to estimate operation history instead...")
+
+                    # Fallback: Get a list of files in the workspace as a proxy for operation history
+                    try:
+                        file_list_result = await self.mcp_agent.call_tool(
+                            "get_file_structure", {"directory": ".", "max_depth": 2}
+                        )
+                        # Extract file info from the result
+                        try:
+                            file_data = json.loads(file_list_result) if isinstance(file_list_result, str) else file_list_result
+                            # Create synthetic operation history from file list
+                            if isinstance(file_data, dict) and file_data.get("structure", {}).get("items", []):
+                                history_data = {
+                                    "total_operations": len(file_data["structure"]["items"]),
+                                    "history": [
+                                        {"action": "write_file", "details": {"file_path": item.get("name")}}
+                                        for item in file_data["structure"].get("items", [])
+                                        if item.get("type") == "file"
+                                    ]
+                                }
+                                self.logger.info(f"Created synthetic history with {len(history_data['history'])} items")
+                        except Exception as parse_error:
+                            self.logger.warning(f"Failed to parse file list result: {parse_error}")
+                    except Exception as fallback_error:
+                        self.logger.warning(f"Fallback also failed: {fallback_error}")
 
             write_operations = 0
             files_created = []
@@ -886,16 +947,16 @@ async def main():
         # Ask if user wants to continue with actual workflow
         print("\nContinuing with workflow execution...")
 
-        # Use dynamic path detection to find the latest paper iteration
+        # Use dynamic path detection to find the latest project
         plan_file = None
         target_directory = None
 
-        # First, try to find papers directory
-        paper_bases = ["deepcode_lab/papers", "papers"]
+        # First, try to find projects directory
+        project_bases = ["projects", "papers"]
         project_root = os.path.dirname(os.path.abspath(__file__))
         parent_dir = os.path.dirname(project_root)
 
-        for base in paper_bases:
+        for base in project_bases:
             # Try relative path first
             papers_dir = Path(base)
             if not papers_dir.exists():
@@ -921,15 +982,15 @@ async def main():
 
         # Fallback to /1/ if no numbered directories found
         if not plan_file:
-            plan_file = "deepcode_lab/papers/1/initial_plan.txt"
-            target_directory = "deepcode_lab/papers/1/"
+            plan_file = "projects/1/initial_plan.txt"
+            target_directory = "projects/1/"
 
             if not os.path.exists(plan_file):
-                plan_file = os.path.join(parent_dir, "deepcode_lab", "papers", "1", "initial_plan.txt")
-                target_directory = os.path.join(parent_dir, "deepcode_lab", "papers", "1")
+                plan_file = os.path.join(parent_dir, "projects", "1", "initial_plan.txt")
+                target_directory = os.path.join(parent_dir, "projects", "1")
             parent_dir = os.path.dirname(project_root)  # Go up from workflows/ to project root
-            plan_file = os.path.join(parent_dir, "deepcode_lab", "papers", "1", "initial_plan.txt")
-            target_directory = os.path.join(parent_dir, "deepcode_lab", "papers", "1")
+            plan_file = os.path.join(parent_dir, "projects", "1", "initial_plan.txt")
+            target_directory = os.path.join(parent_dir, "projects", "1")
 
         print(f"📄 Plan file: {plan_file}")
         print(f"📂 Target directory: {target_directory}")

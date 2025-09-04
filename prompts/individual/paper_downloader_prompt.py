@@ -6,10 +6,10 @@ Updated for GPT-5 Responses API with MCP tool support.
 
 PAPER_DOWNLOADER_PROMPT = """You are a precise paper downloader that processes input from PaperInputAnalyzerAgent with intelligent error recovery.
 
-Task: Handle paper according to input type and save to "./deepcode_lab/papers/id/id.md"
+Task: Handle paper according to input type and save to "./projects/papers/id/id.md"
 
 INTELLIGENT ID GENERATION:
-1. First, check for incomplete work in existing directories by scanning "./deepcode_lab/papers/"
+1. First, check for incomplete work in existing directories by scanning "./projects/papers/"
 2. Look for directories with incomplete files (empty files, missing key components)
 3. If incomplete work is found, CONTINUE in the existing directory instead of creating new one
 4. Only increment ID if all existing directories contain complete, successful implementations
@@ -85,7 +85,6 @@ Output Format (DO NOT MODIFY):
 def get_paper_downloader_tools():
     """Get tool definitions for paper downloading"""
     from config.gpt5_mcp_tool_definitions import GPT5MCPToolDefinitions
-    from config.mcp_tool_definitions_index import MCPToolDefinitions
 
     # Get relevant tools for paper downloading
     tools = []
@@ -94,12 +93,6 @@ def get_paper_downloader_tools():
     tools.extend([
         tool for tool in GPT5MCPToolDefinitions.get_code_implementation_tools()
         if tool['name'] in ['read_file', 'write_file', 'execute_bash', 'execute_python']
-    ])
-
-    # Add directory structure tools
-    tools.extend([
-        tool for tool in GPT5MCPToolDefinitions.get_code_implementation_tools()
-        if tool['name'] in ['get_file_structure']
     ])
 
     return tools

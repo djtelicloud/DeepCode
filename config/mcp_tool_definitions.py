@@ -33,6 +33,7 @@ class MCPToolDefinitions:
             MCPToolDefinitions._get_write_multiple_files_tool(),
             MCPToolDefinitions._get_execute_python_tool(),
             MCPToolDefinitions._get_execute_bash_tool(),
+            MCPToolDefinitions._get_get_operation_history_tool(),
         ]
 
     @staticmethod
@@ -324,6 +325,26 @@ class MCPToolDefinitions:
                     }
                 },
                 "required": ["workspace_path"],
+                "additionalProperties": False,
+            },
+        }
+
+    @staticmethod
+    def _get_get_operation_history_tool() -> Dict[str, Any]:
+        """Get operation history tool definition"""
+        return {
+            "type": "function",
+            "name": "get_operation_history",
+            "description": "Get operation history",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "last_n": {
+                        "type": "integer",
+                        "description": "Return the last N operations",
+                        "default": 10,
+                    }
+                },
                 "additionalProperties": False,
             },
         }

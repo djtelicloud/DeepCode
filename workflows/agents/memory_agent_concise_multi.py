@@ -85,7 +85,7 @@ class ConciseMemoryAgent:
         if target_directory:
             self.save_path = target_directory
         else:
-            self.save_path = "./deepcode_lab/papers/1/"
+            self.save_path = "./projects/papers/1/"
 
         # Code summary file path
         self.code_summary_path = os.path.join(

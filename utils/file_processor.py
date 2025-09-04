@@ -187,14 +187,6 @@ class FileProcessor:
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"File not found: {file_path}")
 
-            # Check if file is actually a PDF by reading the first few bytes
-            with open(file_path, "rb") as f:
-                header = f.read(8)
-                if header.startswith(b"%PDF"):
-                    raise IOError(
-                        f"File {file_path} is a PDF file, not a text file. Please convert it to markdown format or use PDF processing tools."
-                    )
-
             # Read file content
             # Note: Using async with would be better for large files
             # but for simplicity and compatibility, using regular file reading
@@ -203,10 +195,6 @@ class FileProcessor:
 
             return content
 
-        except UnicodeDecodeError as e:
-            raise IOError(
-                f"Error reading file {file_path}: File encoding is not UTF-8. Original error: {str(e)}"
-            )
         except Exception as e:
             raise IOError(f"Error reading file {file_path}: {str(e)}")
 
@@ -264,12 +252,9 @@ class FileProcessor:
         return "\n".join(output)
 
     @classmethod
-    async def process_file_input(
-        cls, file_input: Union[str, Dict], base_dir: Optional[str] = None
-    ) -> Dict:
+    async def process_file_input(cls, file_input: Union[str, Dict], base_dir: Optional[str] = None) -> Dict:
         """
         Process file input information and return the structured content.
-        Enhanced with smart project management and timeout handling.
 
         Args:
             file_input: File input information (JSON string, dict, or direct file path)
@@ -279,15 +264,6 @@ class FileProcessor:
             Dict: The structured content with sections and standardized text
         """
         try:
-            # Import smart project management and path safety here to avoid circular imports
-            from utils.path_safety import (PathSafetyManager, safe_makedirs,
-                                           validate_path)
-            from utils.project_choice_ui import interactive_project_setup
-            from utils.smart_project_manager import SmartProjectManager
-
-            # Initialize path safety
-            path_safety = PathSafetyManager()
-
             # 首先尝试从字符串中提取markdown文件路径
             if isinstance(file_input, str):
                 import re
@@ -297,53 +273,48 @@ class FileProcessor:
                     paper_path = file_path_match.group(1)
                     file_input = {"paper_path": paper_path}
 
-            # Use smart project management system
-            projects_base_dir = "./deepcode_lab/projects/"
-            if base_dir:
-                projects_base_dir = os.path.join(base_dir, "projects")
+            # Extract paper directory path
+            paper_dir = cls.extract_file_path(file_input)
 
-            # Validate and ensure safe path
-            projects_base_dir = validate_path(projects_base_dir)
+            # If base_dir is provided, adjust paper_dir to be relative to base_dir
+            if base_dir and paper_dir:
+                import pathlib
 
-            # Extract title from input
-            manager = SmartProjectManager(projects_base_dir)
-            suggested_title = manager._extract_title_from_payload(file_input)
+                # If paper_dir is using default location, move it to base_dir
+                if paper_dir.endswith(('projects', 'agent_folders', 'projects')):
+                    # Extract project name or generate a new one if not available
+                    project_name = os.path.basename(paper_dir)
+                    if project_name in ('projects', 'agent_folders', 'projects'):
+                        # Generate a new project name with timestamp
+                        import time
+                        project_name = f"project_{int(time.time())}"
 
-            # Check if we're in interactive mode (can be set via environment or config)
-            interactive_mode = os.getenv("DEEPCODE_INTERACTIVE", "true").lower() == "true"
+                    # Set up the new directory structure
+                    project_dir = os.path.join(base_dir, project_name)
+                    paper_dir = os.path.join(project_dir, 'papers')
+                else:
+                    # Extract the project name from the existing path
+                    dir_parts = os.path.normpath(paper_dir).split(os.path.sep)
 
-            project_result = None
+                    # Try to find 'papers' in the path
+                    if 'papers' in dir_parts:
+                        papers_index = dir_parts.index('papers')
+                        if papers_index > 0:  # There should be a project name before 'papers'
+                            project_name = dir_parts[papers_index-1]
+                        else:
+                            # Generate a new project name with timestamp
+                            import time
+                            project_name = f"project_{int(time.time())}"
+                    else:
+                        # Use the last directory name as project name
+                        project_name = os.path.basename(paper_dir)
 
-            if interactive_mode:
-                # Use interactive project setup with timeout handling
-                try:
-                    project_result = interactive_project_setup(suggested_title, file_input)
+                    # Set up the new directory structure
+                    project_dir = os.path.join(base_dir, project_name)
+                    paper_dir = os.path.join(project_dir, 'papers')
 
-                    if project_result.get("action") == "cancelled":
-                        # If user cancels, fall back to intelligent auto-choice
-                        print("🤖 User cancelled, using intelligent auto-choice...")
-                        project_result = manager.make_intelligent_auto_choice(suggested_title, file_input)
-
-                except (KeyboardInterrupt, EOFError, OSError, Exception) as e:
-                    # Fall back to intelligent auto-choice if interactive fails
-                    print(f"🤖 Interactive mode failed ({type(e).__name__}), using intelligent auto-choice...")
-                    project_result = manager.make_intelligent_auto_choice(suggested_title, file_input)
-
-            if not project_result:
-                # Use intelligent auto-choice as fallback
-                print(f"🤖 Using intelligent auto-choice...")
-                project_result = manager.make_intelligent_auto_choice(suggested_title, file_input)
-
-            paper_dir = project_result["folder_path"]
-            is_continuing = project_result["action"] in ["continued_existing", "using_existing"]
-            project_info = project_result.get("metadata", {})
-
-            print(f"📁 Using project directory: {paper_dir}")
-
-            # Ensure the directory exists safely
-            if paper_dir:
-                paper_dir = validate_path(paper_dir)
-                safe_makedirs(paper_dir, exist_ok=True)
+                # Ensure the directory exists
+                os.makedirs(paper_dir, exist_ok=True)
 
             if not paper_dir:
                 raise ValueError("Could not determine paper directory path")
@@ -438,8 +409,6 @@ class FileProcessor:
                 "file_path": file_path,
                 "sections": structured_content,
                 "standardized_text": standardized_text,
-                "directory_reused": is_continuing,
-                "project_info": project_info,
             }
 
         except Exception as e:

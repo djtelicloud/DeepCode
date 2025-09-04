@@ -6,7 +6,7 @@ __pycache__/
 *.tgz
 *.tar.gz
 *.ini
-*deepcode_lab*
+*projects*
 # Virtual Environment
 .venv/
 env/
@@ -14,13 +14,13 @@ venv/
 *.env*
 .env_example
 mcp_agent.secrets.yaml
-*deepcode_lab*
+*projects*
 *secrets*
 # Build / Distribution
 dist/
 build/
 site/
-
+*logs*
 # Logs / Reports
 *.log
 *.log.*

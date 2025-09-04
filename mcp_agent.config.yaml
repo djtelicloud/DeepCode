@@ -13,7 +13,7 @@ planning_mode: "traditional"
 # Document segmentation configuration
 document_segmentation:
   enabled: true  # Whether to use intelligent document segmentation
-  size_threshold_chars: 50000  # Document size threshold (in characters) to trigger segmentation
+  size_threshold_chars: 20000  # Document size threshold (in characters) to trigger segmentation
   # If document size > threshold and enabled=true, use segmentation workflow
   # If document size <= threshold or enabled=false, use traditional full-document reading
 

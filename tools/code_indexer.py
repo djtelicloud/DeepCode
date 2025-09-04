@@ -1423,9 +1423,9 @@ async def main():
     api_config_file = "DeepCode/mcp_agent.secrets.yaml"
 
     # You can override these parameters or let them be read from config
-    code_base_path = "DeepCode/deepcode_lab/papers/1/code_base/"  # Will use config file value if None
+    code_base_path = "DeepCode/projects/papers/1/code_base/"  # Will use config file value if None
     output_dir = (
-        "DeepCode/deepcode_lab/papers/1/indexes/"  # Will use config file value if None
+        "DeepCode/projects/papers/1/indexes/"  # Will use config file value if None
     )
 
     # Target structure - this should be customized for your specific project

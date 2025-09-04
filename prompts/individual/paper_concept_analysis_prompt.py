@@ -183,7 +183,6 @@ BE THOROUGH. Miss nothing. The output should be a complete blueprint for reprodu
 def get_paper_concept_analysis_tools():
     """Get tool definitions for paper concept analysis"""
     from config.gpt5_mcp_tool_definitions import GPT5MCPToolDefinitions
-    from config.mcp_tool_definitions_index import MCPToolDefinitions
 
     # Get relevant tools for concept analysis
     tools = []
@@ -193,16 +192,6 @@ def get_paper_concept_analysis_tools():
         tool for tool in GPT5MCPToolDefinitions.get_code_implementation_tools()
         if tool['name'] in ['read_file', 'read_multiple_files']
     ])
-
-    # Add search and analysis tools
-    try:
-        index_tools = MCPToolDefinitions.get_code_implementation_tools()
-        tools.extend([
-            tool for tool in index_tools
-            if tool['name'] in ['search_code', 'search_code_references', 'get_file_structure']
-        ])
-    except:
-        pass  # Fallback if index tools not available
 
     # Add execution tools for data processing and structure analysis
     tools.extend([

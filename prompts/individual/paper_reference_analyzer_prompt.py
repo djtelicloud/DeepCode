@@ -79,7 +79,6 @@ Output Format:
 def get_paper_reference_analyzer_tools():
     """Get tool definitions for paper reference analysis"""
     from config.gpt5_mcp_tool_definitions import GPT5MCPToolDefinitions
-    from config.mcp_tool_definitions_index import MCPToolDefinitions
 
     # Get relevant tools for reference analysis
     tools = []
@@ -96,15 +95,11 @@ def get_paper_reference_analyzer_tools():
         if tool['name'] in ['execute_python', 'execute_bash']
     ])
 
-    # Add search tools for code references
+    # Add command execution tools
     try:
-        index_tools = MCPToolDefinitions.get_code_implementation_tools()
-        tools.extend([
-            tool for tool in index_tools
-            if tool['name'] in ['search_code_references', 'get_indexes_overview']
-        ])
+        tools.extend(GPT5MCPToolDefinitions.get_command_executor_tools())
     except:
-        pass  # Fallback if index tools not available
+        pass  # Fallback if command executor tools not available
 
     return tools
 

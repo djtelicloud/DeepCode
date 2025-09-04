@@ -12,18 +12,18 @@ Usage:
 python tools/code_implementation_server.py
 """
 
-import os
-import sys
 import io
-import subprocess
 import json
-from pathlib import Path
-import re
-from typing import Dict, Any, List, Optional
-import tempfile
-import shutil
 import logging
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 # Set standard output encoding to UTF-8
 if sys.stdout.encoding != "utf-8":
@@ -37,7 +37,28 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Create FastMCP server instance
-mcp = FastMCP("code-implementation-server")
+mcp = FastMCP("code-implementation")
+
+# Add extra logging for tool registration
+logger.info(f"FastMCP server created: {mcp}")
+logger.info("Server will register tools with @mcp.tool() decorator")
+
+# Register all tools and log them
+def list_all_registered_tools():
+    """Helper function to list and log all registered tools"""
+    try:
+        # This will vary based on how FastMCP exposes tools
+        registered_tools = getattr(mcp, "_tools", [])
+        if registered_tools:
+            tool_names = [tool.get("name", "unknown") for tool in registered_tools]
+            logger.info(f"Registered tools: {', '.join(tool_names)}")
+        else:
+            logger.warning("No tools appear to be registered with FastMCP server")
+    except Exception as e:
+        logger.error(f"Error listing registered tools: {e}")
+
+# Call this function at server startup
+logger.info("Verifying tool registration...")
 
 # Global variables: workspace directory and operation history
 WORKSPACE_DIR: Optional[Path] = None
@@ -50,18 +71,18 @@ def initialize_workspace(workspace_dir: Optional[str] = None):
     Initialize workspace
 
     By default, the workspace will be set by the workflow via the set_workspace tool to:
-    {plan_file_parent}/generate_code
+    {project_dir}/code
 
     Args:
         workspace_dir: Optional workspace directory path
     """
     global WORKSPACE_DIR
     if workspace_dir is None:
-        # Default to generate_code directory under current directory, but don't create immediately
+        # Default to code directory under current directory, but don't create immediately
         # This default value will be overridden by workflow via set_workspace tool
-        WORKSPACE_DIR = Path.cwd() / "generate_code"
+        WORKSPACE_DIR = Path.cwd() / "code"
         # logger.info(f"Workspace initialized (default value, will be overridden by workflow): {WORKSPACE_DIR}")
-        # logger.info("Note: Actual workspace will be set by workflow via set_workspace tool to {plan_file_parent}/generate_code")
+        # logger.info("Note: Actual workspace will be set by workflow via set_workspace tool to {project_dir}/code")
     else:
         WORKSPACE_DIR = Path(workspace_dir).resolve()
         # Only create when explicitly specified
@@ -1397,11 +1418,11 @@ async def set_workspace(workspace_path: str) -> str:
     """
     Set workspace directory
 
-    Called by workflow to set workspace to: {plan_file_parent}/generate_code
+    Called by workflow to set workspace to: {project_dir}/code
     This ensures all file operations are executed relative to the correct project directory
 
     Args:
-        workspace_path: Workspace path (Usually {plan_file_parent}/generate_code)
+        workspace_path: Workspace path (Usually {project_dir}/code)
 
     Returns:
         JSON string of operation result
@@ -1429,13 +1450,14 @@ async def set_workspace(workspace_path: str) -> str:
             {
                 "old_workspace": str(old_workspace) if old_workspace else None,
                 "new_workspace": str(WORKSPACE_DIR),
-                "workspace_alignment": "plan_file_parent/generate_code",
+                "workspace_alignment": "project_dir/code",
             },
         )
 
         return json.dumps(result, ensure_ascii=False, indent=2)
 
     except Exception as e:
+        logger.error(f"Error in set_workspace: {str(e)}")
         result = {
             "status": "error",
             "message": f"Failed to set workspace: {str(e)}",
@@ -1487,30 +1509,62 @@ async def get_operation_history(last_n: int = 10) -> str:
 def main():
     """Start MCP server"""
     print("🚀 Code Implementation MCP Server")
-    print(
-        "📝 Paper Code Implementation Tool Server / Paper Code Implementation Tool Server"
-    )
+    print("📝 Paper Code Implementation Tool Server")
     print("")
-    print("Available tools / Available tools:")
-    # print("  • read_file           - Read file contents / Read file contents")
-    print(
-        "  • read_code_mem       - Read code summary from implement_code_summary.md / Read code summary from implement_code_summary.md"
-    )
-    print("  • write_file          - Write file contents / Write file contents")
-    print("  • execute_python      - Execute Python code / Execute Python code")
-    print("  • execute_bash        - Execute bash command / Execute bash commands")
-    print("  • search_code         - Search code patterns / Search code patterns")
-    print("  • get_file_structure  - Get file structure / Get file structure")
-    print("  • set_workspace       - Set workspace / Set workspace")
-    print("  • get_operation_history - Get operation history / Get operation history")
+    print("Available tools:")
+    print("  • read_file           - Read file contents")
+    print("  • read_multiple_files - Read multiple files at once")
+    print("  • write_file          - Write file contents")
+    print("  • write_multiple_files - Write multiple files at once")
+    print("  • read_code_mem       - Read code summary from implement_code_summary.md")
+    print("  • execute_python      - Execute Python code")
+    print("  • execute_bash        - Execute bash command")
+    print("  • search_code         - Search code patterns")
+    print("  • get_file_structure  - Get file structure")
+    print("  • set_workspace       - Set workspace")
+    print("  • get_operation_history - Get operation history")
     print("")
     print("🔧 Server starting...")
 
-    # Initialize default workspace
-    initialize_workspace()
+    # Call helper function to list and verify registered tools
+    list_all_registered_tools()
 
-    # Start server
-    mcp.run()
+    try:
+        # Initialize default workspace
+        initialize_workspace()
+
+    # Add logging to help diagnose tool registration issues
+        logger.info("Starting server with essential workspace management tools:")
+        logger.info("- set_workspace: Sets the working directory for all file operations")
+        logger.info("- read_file: Reads file content from the workspace")
+        logger.info("- write_file: Writes content to files in the workspace")
+        logger.info("- get_operation_history: Gets operation history")
+
+        # Verify get_operation_history tool is registered
+        try:
+            # Check if the function exists - this doesn't verify it's registered with MCP
+            if callable(globals().get('get_operation_history')):
+                logger.info("✅ get_operation_history function exists in global namespace")
+            else:
+                logger.warning("❌ get_operation_history function not found in global namespace")
+        except Exception as e:
+            logger.error(f"Error checking get_operation_history: {e}")
+
+        # Print out a reminder about the need for set_workspace
+        print("\n⚠️ IMPORTANT: Workflow must call set_workspace first to initialize workspace")
+        print("   Function: set_workspace(workspace_path: str)")
+        print("   Example: set_workspace({\"workspace_path\": \"/path/to/workspace\"})")
+        print("")
+
+        # List all registered tools before starting server
+        list_all_registered_tools()
+
+        # Start server
+        logger.info("Starting FastMCP server with all tools")
+        mcp.run()
+    except Exception as e:
+        logger.error(f"Server initialization error: {e}")
+        raise
 
 
 if __name__ == "__main__":

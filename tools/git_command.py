@@ -6,8 +6,8 @@ GitHub Repository Downloader MCP Tool using FastMCP
 import asyncio
 import os
 import re
-from typing import Dict, List, Optional, Any
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from mcp.server import FastMCP
 
@@ -46,7 +46,7 @@ class GitHubURLExtractor:
                 else:
                     # 处理短格式 (owner/repo) - 添加更多验证
                     if "/" in match and not any(
-                        x in match for x in ["./", "../", "deepcode_lab", "tools"]
+                        x in match for x in ["./", "../", "projects", "tools"]
                     ):
                         parts = match.split("/")
                         if (

@@ -26,7 +26,7 @@ from mcp_agent.agents.agent import Agent
 
 # Local imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config.mcp_tool_definitions import get_mcp_tools
+from config.gpt5_mcp_tool_definitions import GPT5MCPToolDefinitions
 from prompts.code_prompts import (PURE_CODE_IMPLEMENTATION_SYSTEM_PROMPT_INDEX,
                                   STRUCTURE_GENERATOR_PROMPT)
 from utils.llm_utils import get_default_models
@@ -84,14 +84,14 @@ class CodeImplementationWorkflowWithIndex:
             with open(plan_path, "r", encoding="utf-8") as f:
                 return f.read()
 
-        # Fallback 1: Look for plan file in current working directory and paper iterations
+        # Fallback 1: Look for plan file in current working directory and project directories
         fallback_paths = [Path("initial_plan.txt")]
 
-        # Add dynamic paths for paper iterations (1, 2, 3, etc.)
+        # Add dynamic paths for project iterations (1, 2, 3, etc.)
         base_paths = [
-            "deepcode_lab/papers",
+            "projects",
             "papers",
-            "agent_folders/papers",  # Common alternative structure
+            "agent_folders/projects",  # Common alternative structure
         ]
 
         for base_path in base_paths:
@@ -103,7 +103,7 @@ class CodeImplementationWorkflowWithIndex:
                         plan_file = item / "initial_plan.txt"
                         fallback_paths.append(plan_file)
 
-        # Sort by paper number (highest first) to prioritize latest iterations
+        # Sort by project number (highest first) to prioritize latest iterations
         numbered_paths = [p for p in fallback_paths if p.parent.name.isdigit()]
         other_paths = [p for p in fallback_paths if not p.parent.name.isdigit()]
         numbered_paths.sort(key=lambda p: int(p.parent.name), reverse=True)
@@ -133,7 +133,7 @@ This is an auto-generated implementation plan created because no plan file was f
 
 ## Project Structure
 ```
-generate_code/
+code/
 ├── main.py           # Main entry point
 ├── README.md         # Project documentation
 ├── requirements.txt  # Dependencies
@@ -162,7 +162,7 @@ generate_code/
 
     def _check_file_tree_exists(self, target_directory: str) -> bool:
         """Check if file tree structure already exists"""
-        code_directory = os.path.join(target_directory, "generate_code")
+        code_directory = os.path.join(target_directory, "code")
         return os.path.exists(code_directory) and len(os.listdir(code_directory)) > 0
 
     # ==================== 2. Public Interface Methods (External API Layer) ====================
@@ -185,7 +185,7 @@ generate_code/
                 target_directory = str(Path(plan_file_path).parent)
 
             # Calculate code directory for workspace alignment
-            code_directory = os.path.join(target_directory, "generate_code")
+            code_directory = os.path.join(target_directory, "code")
 
             self.logger.info("=" * 80)
             self.logger.info("🚀 STARTING CODE IMPLEMENTATION WORKFLOW")
@@ -225,7 +225,7 @@ generate_code/
                 "status": "success",
                 "plan_file": plan_file_path,
                 "target_directory": target_directory,
-                "code_directory": os.path.join(target_directory, "generate_code"),
+                "code_directory": os.path.join(target_directory, "code"),
                 "results": results,
                 "mcp_architecture": "standard",
             }
@@ -261,7 +261,7 @@ generate_code/
 
             message = f"""Analyze the following implementation plan and generate shell commands to create the file tree structure.
 
-Target Directory: {target_directory}/generate_code
+Target Directory: {target_directory}/code
 
 Implementation Plan:
 {plan_content}
@@ -296,7 +296,7 @@ Requirements:
 
         # Use provided code_directory or calculate it (for backwards compatibility)
         if code_directory is None:
-            code_directory = os.path.join(target_directory, "generate_code")
+            code_directory = os.path.join(target_directory, "code")
 
         self.logger.info(f"🎯 Using code directory (MCP workspace): {code_directory}")
 
@@ -372,7 +372,7 @@ Requirements:
         target_directory,
     ):
         """Pure code implementation loop with memory optimization and phase consistency"""
-        max_iterations = 500
+        max_iterations = 100
         iteration = 0
         start_time = time.time()
         max_time = 5000  # 40 minutes
@@ -512,7 +512,7 @@ Requirements:
                 break
 
             # Emergency trim if too long
-            if len(messages) > 500:
+            if len(messages) > 150:
                 self.logger.warning(
                     "Emergency message trim - applying concise memory optimization"
                 )
@@ -547,6 +547,7 @@ Requirements:
             workspace_result = await self.mcp_agent.call_tool(
                 "set_workspace", {"workspace_path": code_directory}
             )
+            self.logger.info(f"Target workspace directory: {code_directory}")
             self.logger.info(f"Workspace setup result: {workspace_result}")
 
             return llm
@@ -619,15 +620,29 @@ Requirements:
             combined_input = f"{system_message}\n\nConversation:\n{messages_text}"
 
             # Use new MCP tools support in responses API
-            response = await client.call_with_mcp_tools(
+            response_str = await client.call_with_mcp_tools(
                 input_text=combined_input,
                 mcp_tools=tools
             )
 
-            # Return in expected format - response is now a string
+            # Check if the response contains tool calls (special format from GPTClient)
+            import json
+            try:
+                parsed_response = json.loads(response_str)
+                if isinstance(parsed_response, dict) and "tool_calls" in parsed_response:
+                    # We have a structured response with tool calls
+                    self.logger.info(f"Received {len(parsed_response['tool_calls'])} tool calls from GPT-5 responses API")
+                    return {
+                        "content": parsed_response.get("content", ""),
+                        "tool_calls": parsed_response.get("tool_calls", [])
+                    }
+            except json.JSONDecodeError:
+                pass  # Not JSON, treat as normal text response
+
+            # Return in standard format for text-only responses
             return {
-                "content": response,
-                "tool_calls": []  # MCP tool calls are handled internally by responses API
+                "content": response_str,
+                "tool_calls": []
             }
         except Exception as e:
             self.logger.error(f"GPTClient MCP API call failed: {e}")
@@ -649,8 +664,8 @@ Requirements:
         return valid_messages
 
     def _prepare_mcp_tool_definitions(self) -> List[Dict[str, Any]]:
-        """Prepare tool definitions for MCP tools"""
-        return get_mcp_tools("code_implementation")
+        """Prepare tool definitions for MCP tools (GPT-5 format)"""
+        return GPT5MCPToolDefinitions.get_code_implementation_tools()
 
     def _check_tool_results_for_errors(self, tool_results: List[Dict]) -> bool:
         """Check tool results for errors"""
@@ -763,7 +778,7 @@ Requirements:
 
             if self.mcp_agent:
                 history_result = await self.mcp_agent.call_tool(
-                    "get_operation_history", {"last_n": 100}
+                    "get_operation_history", {"last_n": 30}
                 )
                 # Try to convert to dict if possible
                 if isinstance(history_result, str):
@@ -908,16 +923,16 @@ async def main():
         # Ask if user wants to continue with actual workflow
         print("\nContinuing with workflow execution...")
 
-        # Use dynamic path detection to find the latest paper iteration
+        # Use dynamic path detection to find the latest project
         plan_file = None
         target_directory = None
 
-        # First, try to find papers directory
-        paper_bases = ["deepcode_lab/papers", "papers"]
+        # First, try to find projects directory
+        project_bases = ["projects", "papers"]
         project_root = os.path.dirname(os.path.abspath(__file__))
         parent_dir = os.path.dirname(project_root)
 
-        for base in paper_bases:
+        for base in project_bases:
             # Try relative path first
             papers_dir = Path(base)
             if not papers_dir.exists():
@@ -943,12 +958,12 @@ async def main():
 
         # Fallback to /1/ if no numbered directories found
         if not plan_file:
-            plan_file = "deepcode_lab/papers/1/initial_plan.txt"
-            target_directory = "deepcode_lab/papers/1/"
+            plan_file = "projects/1/initial_plan.txt"
+            target_directory = "projects/1/"
 
             if not os.path.exists(plan_file):
-                plan_file = os.path.join(parent_dir, "deepcode_lab", "papers", "1", "initial_plan.txt")
-                target_directory = os.path.join(parent_dir, "deepcode_lab", "papers", "1")
+                plan_file = os.path.join(parent_dir, "projects", "1", "initial_plan.txt")
+                target_directory = os.path.join(parent_dir, "projects", "1")
 
         print(f"📄 Plan file: {plan_file}")
         print(f"📂 Target directory: {target_directory}")

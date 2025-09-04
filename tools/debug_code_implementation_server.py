@@ -33,7 +33,7 @@ def main():
         from mcp.server.fastmcp import FastMCP
 
         print("Creating MCP server instance...")
-        mcp = FastMCP("code-implementation-server-debug")
+        mcp = FastMCP("code-implementation-debug")
 
         @mcp.tool()
         async def set_workspace(workspace_path: str) -> str:

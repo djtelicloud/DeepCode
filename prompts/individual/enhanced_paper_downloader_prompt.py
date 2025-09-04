@@ -27,7 +27,7 @@ WORKFLOW PROCESS:
    - Create fresh project with v1
 
 PROJECT STRUCTURE:
-- Base directory: "./deepcode_lab/projects/"
+- Base directory: "./projects/projects/"
 - Project folders: "{clean-title}/" or "{clean-title}-v{N}/"
 - Metadata tracking: .project_metadata.json
 - Payload tracking: .project_payload.json per project

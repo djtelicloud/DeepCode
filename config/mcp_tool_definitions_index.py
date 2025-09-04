@@ -54,7 +54,7 @@ class MCPToolDefinitions:
             MCPToolDefinitions._get_generate_evaluation_summary_tool(),
             MCPToolDefinitions._get_detect_empty_files_tool(),
             MCPToolDefinitions._get_detect_missing_files_tool(),
-            MCPToolDefinitions._get_generate_code_revision_report_tool(),
+            MCPToolDefinitions._get_code_revision_report_tool(),
         ]
 
     @staticmethod
@@ -272,6 +272,8 @@ class MCPToolDefinitions:
                         "default": 5,
                     },
                 },
+                "required": [],
+                "additionalProperties": False
             },
         }
 
@@ -359,6 +361,8 @@ class MCPToolDefinitions:
                         "default": 10,
                     },
                 },
+                "required": [],
+                "additionalProperties": False
             },
         }
 
@@ -568,10 +572,10 @@ class MCPToolDefinitions:
         }
 
     @staticmethod
-    def _get_generate_code_revision_report_tool() -> Dict[str, Any]:
+    def _get_code_revision_report_tool() -> Dict[str, Any]:
         return {
             "type": "function",
-            "name": "generate_code_revision_report",
+            "name": "code_revision_report",
             "description": "Generate comprehensive code revision report combining empty files, missing files, and quality analysis",
             "parameters": {
                 "type": "object",

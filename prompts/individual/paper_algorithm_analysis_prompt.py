@@ -174,7 +174,6 @@ BE EXHAUSTIVE. A developer should be able to implement the ENTIRE paper using on
 def get_paper_algorithm_analysis_tools():
     """Get tool definitions for paper algorithm analysis"""
     from config.gpt5_mcp_tool_definitions import GPT5MCPToolDefinitions
-    from config.mcp_tool_definitions_index import MCPToolDefinitions
 
     # Get relevant tools for algorithm analysis
     tools = []
@@ -184,16 +183,6 @@ def get_paper_algorithm_analysis_tools():
         tool for tool in GPT5MCPToolDefinitions.get_code_implementation_tools()
         if tool['name'] in ['read_file', 'read_multiple_files']
     ])
-
-    # Add search tools for finding specific sections
-    try:
-        index_tools = MCPToolDefinitions.get_code_implementation_tools()
-        tools.extend([
-            tool for tool in index_tools
-            if tool['name'] in ['search_code', 'search_code_references']
-        ])
-    except:
-        pass  # Fallback if index tools not available
 
     # Add execution tools for data processing
     tools.extend([

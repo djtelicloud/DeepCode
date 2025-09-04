@@ -22,7 +22,8 @@ class GPT5MCPToolDefinitions:
         """
         Get tool definitions for code implementation (GPT-5 format)
         """
-        mcp_tools = [
+        # Note: The tools are already in GPT-5 format with additionalProperties: false
+        return [
             GPT5MCPToolDefinitions._get_set_workspace_tool(),
             GPT5MCPToolDefinitions._get_read_file_tool(),
             GPT5MCPToolDefinitions._get_read_multiple_files_tool(),
@@ -32,21 +33,16 @@ class GPT5MCPToolDefinitions:
             GPT5MCPToolDefinitions._get_execute_bash_tool(),
         ]
 
-        # Convert to GPT-5 format
-        return GPT5ToolConverter.convert_mcp_tools_list(mcp_tools)
-
     @staticmethod
     def get_command_executor_tools() -> List[Dict[str, Any]]:
         """
         Get command executor tools (GPT-5 format)
         """
-        mcp_tools = [
+        # Note: The tools are already in GPT-5 format with additionalProperties: false
+        return [
             GPT5MCPToolDefinitions._get_execute_commands_tool(),
             GPT5MCPToolDefinitions._get_execute_single_command_tool(),
         ]
-
-        # Convert to GPT-5 format
-        return GPT5ToolConverter.convert_mcp_tools_list(mcp_tools)
 
     @staticmethod
     def _get_read_file_tool() -> Dict[str, Any]:
@@ -72,6 +68,7 @@ class GPT5MCPToolDefinitions:
                     },
                 },
                 "required": ["file_path"],
+                "additionalProperties": False,
             },
         }
 
@@ -91,6 +88,7 @@ class GPT5MCPToolDefinitions:
                     }
                 },
                 "required": ["workspace_path"],
+                "additionalProperties": False,
             },
         }
 
@@ -111,6 +109,7 @@ class GPT5MCPToolDefinitions:
                     }
                 },
                 "required": ["file_paths"],
+                "additionalProperties": False,
             },
         }
 
@@ -134,6 +133,7 @@ class GPT5MCPToolDefinitions:
                     },
                 },
                 "required": ["file_path", "content"],
+                "additionalProperties": False,
             },
         }
 
@@ -155,12 +155,14 @@ class GPT5MCPToolDefinitions:
                                 "path": {"type": "string"},
                                 "content": {"type": "string"}
                             },
-                            "required": ["path", "content"]
+                            "required": ["path", "content"],
+                            "additionalProperties": False
                         },
                         "description": "Array of file objects with path and content",
                     }
                 },
                 "required": ["files"],
+                "additionalProperties": False,
             },
         }
 
@@ -184,6 +186,7 @@ class GPT5MCPToolDefinitions:
                     },
                 },
                 "required": ["code"],
+                "additionalProperties": False,
             },
         }
 
@@ -207,6 +210,7 @@ class GPT5MCPToolDefinitions:
                     },
                 },
                 "required": ["command"],
+                "additionalProperties": False,
             },
         }
 
@@ -230,6 +234,7 @@ class GPT5MCPToolDefinitions:
                     },
                 },
                 "required": ["commands", "working_directory"],
+                "additionalProperties": False,
             },
         }
 
@@ -253,6 +258,7 @@ class GPT5MCPToolDefinitions:
                     },
                 },
                 "required": ["command", "working_directory"],
+                "additionalProperties": False,
             },
         }
 
